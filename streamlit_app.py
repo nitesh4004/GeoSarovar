@@ -14,7 +14,7 @@ from PIL import Image, UnidentifiedImageError
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-import folium # Added explicitly to fix the marker error
+import folium 
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(
@@ -434,8 +434,13 @@ else:
     
     col_map, col_res = st.columns([3, 1])
     
-    # Basemap set to Esri for quality, but the page UI is now White/Blue
-    m = geemap.Map(height=700, basemap="Esri.WorldImagery")
+    # --- FIXED: Use default 'HYBRID' then add Esri manually to avoid KeyErrors ---
+    m = geemap.Map(height=700, basemap="HYBRID") # Initial Safe Basemap
+    
+    # Manually add Esri World Imagery (High Res)
+    esri_url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    m.add_tile_layer(url=esri_url, name="Esri World Imagery", attribution="Esri")
+    
     m.centerObject(roi, 13)
 
     with st.spinner("🌧️ Processing Hydro-Geospatial Data..."):
