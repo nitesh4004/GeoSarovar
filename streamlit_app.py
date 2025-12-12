@@ -14,6 +14,7 @@ from PIL import Image, UnidentifiedImageError
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+import folium # Added explicitly to fix the marker error
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(
@@ -23,95 +24,95 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. ADVANCED CSS STYLING (Hydro-Glass UI) ---
+# --- 2. CSS STYLING (White & Dark Blue Theme) ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Lato:wght@300;400;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;600&display=swap');
     
     :root {
-        --bg-color: #0f2027;
-        --card-bg: rgba(16, 42, 67, 0.65);
-        --glass-border: 1px solid rgba(129, 230, 217, 0.15);
-        --accent-primary: #4fd1c5;   /* Teal/Cyan */
-        --accent-secondary: #68d391; /* Fresh Green */
-        --text-primary: #e6fffa;
-        --text-secondary: #b2f5ea;
+        --bg-color: #ffffff;
+        --card-bg: #ffffff;
+        --border-color: #d1d9e6;
+        --accent-primary: #00204a;   /* Dark Navy Blue */
+        --accent-secondary: #005792; /* Brighter Blue */
+        --text-primary: #00204a;     /* Dark Blue Text */
+        --text-secondary: #5c6b7f;
     }
 
     .stApp { 
-        background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
-        font-family: 'Lato', sans-serif;
+        background-color: var(--bg-color);
+        font-family: 'Inter', sans-serif;
+        color: var(--text-primary);
     }
 
-    h1, h2, h3, .title-font { font-family: 'Rajdhani', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; color: var(--text-primary) !important; }
-    p, label, .stMarkdown, div { color: var(--text-primary) !important; }
+    h1, h2, h3, .title-font { 
+        font-family: 'Rajdhani', sans-serif !important; 
+        text-transform: uppercase; 
+        letter-spacing: 0.5px; 
+        color: var(--accent-primary) !important; 
+    }
+    
+    p, label, .stMarkdown, div, span { 
+        color: var(--text-primary) !important; 
+    }
 
     /* Sidebar Styling */
     section[data-testid="stSidebar"] {
-        background-color: rgba(12, 28, 40, 0.85);
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(12px);
+        background-color: #f8f9fa; /* Very Light Grey */
+        border-right: 1px solid var(--border-color);
     }
     
     /* Input Fields */
     .stTextInput > div > div, .stNumberInput > div > div, .stSelectbox > div > div, .stDateInput > div > div {
-        background-color: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(79, 209, 197, 0.3) !important;
+        background-color: #ffffff !important;
+        border: 1px solid #00204a !important; /* Dark Blue Border */
         border-radius: 6px;
-        color: #fff !important;
+        color: #00204a !important;
     }
     
-    /* --- FIX: CALENDAR WIDGET VISIBILITY --- */
-    /* Force the calendar container to have a dark background */
+    /* Calendar Widget Styling (Light Theme) */
     div[data-baseweb="popover"] > div {
-        background-color: #0f2027 !important;
+        background-color: #ffffff !important;
         border: 1px solid var(--accent-primary) !important;
     }
-    
     div[data-baseweb="calendar"] {
-        background-color: #0f2027 !important;
+        background-color: #ffffff !important;
     }
-    
-    /* Day Numbers */
     div[data-baseweb="calendar"] button {
-        color: #e6fffa !important;
+        color: #00204a !important;
     }
-    
-    /* Month/Year Headers */
     div[data-baseweb="calendar"] div {
-        color: #e6fffa !important;
+        color: #00204a !important;
     }
-    
-    /* Hover effects on days */
     div[data-baseweb="calendar"] button:hover {
-        background-color: var(--accent-primary) !important;
-        color: #000 !important;
+        background-color: #e6f0ff !important;
+        color: #00204a !important;
     }
-    
-    /* Selected Day */
     div[data-baseweb="calendar"] button[aria-selected="true"] {
         background-color: var(--accent-primary) !important;
-        color: #000 !important;
+        color: #ffffff !important;
     }
-    /* --- END CALENDAR FIX --- */
 
     /* Primary Buttons */
     div.stButton > button:first-child {
-        background: linear-gradient(90deg, #319795 0%, #38a169 100%);
+        background: var(--accent-primary);
         border: none;
-        color: white;
+        color: white !important; /* White text on button */
         font-family: 'Rajdhani', sans-serif;
         font-weight: 700;
         letter-spacing: 1px;
         padding: 0.6rem;
         border-radius: 6px;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 6px rgba(0, 32, 74, 0.2);
     }
     div.stButton > button:first-child:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 15px rgba(56, 161, 105, 0.4);
-        background: linear-gradient(90deg, #2c7a7b 0%, #2f855a 100%);
+        background: var(--accent-secondary);
+        box-shadow: 0 6px 12px rgba(0, 87, 146, 0.3);
+    }
+    div.stButton > button:first-child p {
+        color: white !important;
     }
 
     /* HUD Header */
@@ -119,24 +120,22 @@ st.markdown("""
         display: flex;
         justify-content: space-between;
         align-items: center;
-        background: rgba(16, 42, 67, 0.4);
-        border-bottom: 1px solid rgba(129, 230, 217, 0.2);
+        background: #ffffff;
+        border-bottom: 2px solid var(--accent-primary);
         padding: 20px 25px;
-        border-radius: 0 0 15px 15px;
+        border-radius: 0 0 10px 10px;
         margin-bottom: 25px;
-        backdrop-filter: blur(5px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
     }
     .hud-title {
         font-family: 'Rajdhani', sans-serif;
-        font-size: 2.0rem;
+        font-size: 2.2rem;
         font-weight: 700;
-        background: -webkit-linear-gradient(0deg, #e6fffa, #81e6d9);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: var(--accent-primary);
     }
     .hud-badge {
-        background: rgba(79, 209, 197, 0.15);
-        border: 1px solid rgba(79, 209, 197, 0.4);
+        background: #e6f0ff;
+        border: 1px solid var(--accent-primary);
         color: var(--accent-primary);
         padding: 5px 12px;
         border-radius: 20px;
@@ -145,45 +144,31 @@ st.markdown("""
         font-weight: 600;
     }
 
-    /* Glass Cards */
+    /* Clean White Cards */
     .glass-card {
-        background: var(--card-bg);
-        border: var(--glass-border);
+        background: #ffffff;
+        border: 1px solid #e0e0e0;
         padding: 20px;
         border-radius: 12px;
         margin-bottom: 15px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-        backdrop-filter: blur(8px);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
     }
     .card-label {
         font-family: 'Rajdhani', sans-serif;
         color: var(--accent-primary);
-        font-size: 1.0rem;
-        font-weight: 600;
+        font-size: 1.1rem;
+        font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 1.2px;
+        letter-spacing: 1px;
         margin-bottom: 12px;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
+        border-bottom: 2px solid #f0f0f0;
         padding-bottom: 8px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
     }
     
     iframe {
         border-radius: 12px;
-        border: 1px solid rgba(129, 230, 217, 0.2);
-        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-    }
-    
-    /* Scrollbars */
-    ::-webkit-scrollbar {
-        width: 8px;
-        background: #0f2027;
-    }
-    ::-webkit-scrollbar-thumb {
-        background: #2c7a7b; 
-        border-radius: 4px;
+        border: 2px solid #00204a;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
     }
     </style>
     """, unsafe_allow_html=True)
@@ -289,24 +274,24 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         if response.status_code != 200: return None
         img_pil = Image.open(BytesIO(response.content))
         
-        # Dark theme plot
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300, facecolor='#0f2027')
-        ax.set_facecolor('#0f2027')
+        # White Theme Plot
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300, facecolor='#ffffff')
+        ax.set_facecolor('#ffffff')
         im = ax.imshow(img_pil, extent=[min_lon, max_lon, min_lat, max_lat], aspect='auto')
         
-        ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#4fd1c5')
-        ax.tick_params(colors='#e6fffa', labelcolor='#e6fffa', labelsize=10)
-        ax.grid(color='#e6fffa', linestyle='--', linewidth=0.5, alpha=0.15)
+        ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#00204a')
+        ax.tick_params(colors='#00204a', labelcolor='#00204a', labelsize=10)
+        ax.grid(color='#00204a', linestyle='--', linewidth=0.5, alpha=0.15)
         for spine in ax.spines.values():
-            spine.set_edgecolor('#e6fffa')
-            spine.set_alpha(0.3)
+            spine.set_edgecolor('#00204a')
+            spine.set_alpha(0.5)
         
         # North Arrow
         ax.annotate('N', xy=(0.97, 0.95), xytext=(0.97, 0.88),
                     xycoords='axes fraction', textcoords='axes fraction',
-                    arrowprops=dict(facecolor='#4fd1c5', edgecolor='white', width=4, headwidth=12, headlength=10),
-                    ha='center', va='center', fontsize=16, fontweight='bold', color='white',
-                    path_effects=[PathEffects.withStroke(linewidth=2, foreground="black")])
+                    arrowprops=dict(facecolor='#00204a', edgecolor='white', width=4, headwidth=12, headlength=10),
+                    ha='center', va='center', fontsize=16, fontweight='bold', color='#00204a',
+                    path_effects=[PathEffects.withStroke(linewidth=2, foreground="white")])
 
         # Legend logic
         if is_categorical and class_names and 'palette' in vis_params:
@@ -315,9 +300,9 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
                 patches.append(mpatches.Patch(color=color, label=name))
             legend = ax.legend(handles=patches, loc='upper center', bbox_to_anchor=(0.5, -0.08), 
                                frameon=False, title="Classes", ncol=min(len(class_names), 4))
-            plt.setp(legend.get_title(), color='white', fontweight='bold', fontsize=12)
+            plt.setp(legend.get_title(), color='#00204a', fontweight='bold', fontsize=12)
             for text in legend.get_texts():
-                text.set_color("white")
+                text.set_color("#00204a")
                 
         elif cmap_colors and 'min' in vis_params:
             cmap = mcolors.LinearSegmentedColormap.from_list("custom", cmap_colors)
@@ -326,12 +311,12 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
             sm.set_array([])
             cax = fig.add_axes([0.92, 0.15, 0.02, 0.7]) 
             cbar = plt.colorbar(sm, cax=cax)
-            cbar.ax.yaxis.set_tick_params(color='white')
-            cbar.set_label('Value', color='white', fontsize=12)
-            plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white', fontsize=10)
+            cbar.ax.yaxis.set_tick_params(color='#00204a')
+            cbar.set_label('Value', color='#00204a', fontsize=12)
+            plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='#00204a', fontsize=10)
         
         buf = BytesIO()
-        plt.savefig(buf, format='jpg', bbox_inches='tight', facecolor='#0f2027')
+        plt.savefig(buf, format='jpg', bbox_inches='tight', facecolor='#ffffff')
         buf.seek(0)
         plt.close(fig)
         return buf
@@ -339,12 +324,12 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
 
 # --- 5. SIDEBAR (CONTROL PANEL) ---
 with st.sidebar:
-    # LOGO DISPLAY (Using raw GitHub link for proper rendering)
+    # LOGO DISPLAY
     st.image("https://raw.githubusercontent.com/nitesh4004/GeoSarovar/main/geosarovar.png", use_container_width=True)
     
     st.markdown("""
         <div style="margin-bottom: 20px; text-align: center;">
-            <p style="font-size: 0.85rem; color: #4fd1c5; letter-spacing: 3px; margin-top:5px; font-weight:600;">INTELLIGENT RWH ANALYTICS</p>
+            <p style="font-size: 0.85rem; color: #00204a; letter-spacing: 2px; margin-top:5px; font-weight:700;">INTELLIGENT RWH ANALYTICS</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -378,7 +363,7 @@ with st.sidebar:
             if st.session_state['roi'] is None or new_roi.getInfo() != st.session_state['roi'].getInfo():
                 st.session_state['roi'] = new_roi
                 st.session_state['calculated'] = False
-                st.toast("Target Region Locked", icon="🌊")
+                st.toast("Target Region Locked", icon="✅")
 
     st.markdown("---")
     
@@ -419,11 +404,11 @@ st.markdown("""
 <div class="hud-header">
     <div>
         <div class="hud-title">GeoSarovar ANALYTICS</div>
-        <div style="color:#b2f5ea; font-size:0.9rem; margin-top:5px;">ADVANCED RAINWATER HARVESTING SUITABILITY SYSTEM</div>
+        <div style="color:#5c6b7f; font-size:0.9rem; margin-top:5px; font-weight:600;">ADVANCED RAINWATER HARVESTING SUITABILITY SYSTEM</div>
     </div>
     <div style="text-align:right;">
         <span class="hud-badge">LIVE SATELLITE FEED</span>
-        <div style="font-family:'Rajdhani'; font-size:1.2rem; margin-top:8px; color:#e6fffa;">""" + datetime.now().strftime("%H:%M UTC") + """</div>
+        <div style="font-family:'Rajdhani'; font-size:1.2rem; margin-top:8px; color:#00204a; font-weight:bold;">""" + datetime.now().strftime("%H:%M UTC") + """</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -431,8 +416,8 @@ st.markdown("""
 if not st.session_state['calculated']:
     st.markdown("""
     <div class="glass-card" style="text-align:center; padding:50px;">
-        <h2 style="color:#e6fffa;">🌊 AWAITING INPUT</h2>
-        <p style="color:#b2f5ea; margin-bottom:20px; font-size:1.1rem;">
+        <h2 style="color:#00204a;">🌊 AWAITING INPUT</h2>
+        <p style="color:#5c6b7f; margin-bottom:20px; font-size:1.1rem;">
             Welcome to GeoSarovar. Please configure your Area of Interest and MCDA weights in the sidebar to generate a suitability model.
         </p>
     </div>
@@ -440,7 +425,7 @@ if not st.session_state['calculated']:
     m = geemap.Map(height=500, basemap="HYBRID")
     if st.session_state['roi']:
         m.centerObject(st.session_state['roi'], 12)
-        m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': '#4fd1c5'}, 'Target ROI')
+        m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': '#00204a'}, 'Target ROI')
     m.to_streamlit()
 
 else:
@@ -449,7 +434,7 @@ else:
     
     col_map, col_res = st.columns([3, 1])
     
-    # --- UPDATED: Explicitly using Esri World Imagery to fix missing basemap ---
+    # Basemap set to Esri for quality, but the page UI is now White/Blue
     m = geemap.Map(height=700, basemap="Esri.WorldImagery")
     m.centerObject(roi, 13)
 
@@ -494,11 +479,10 @@ else:
             .add(slope_score.multiply(p['w_slope'])) \
             .add(lulc_score.multiply(p['w_lulc'])) \
             .add(soil_score.multiply(p['w_soil'])) \
-            .rename('score') # Renamed for easier tracking
+            .rename('score') 
 
         # VISUALIZATION
         vis_params = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
-        # Updated palette: Red (Bad) -> Orange -> Yellow -> Light Green -> Dark Green (Good)
         
         m.addLayer(rain_mean, {'min': 0, 'max': 200, 'palette': ['blue', 'cyan']}, 'Rainfall (Raw)', False)
         m.addLayer(slope, {'min': 0, 'max': 30, 'palette': ['white', 'black']}, 'Slope (Raw)', False)
@@ -513,9 +497,9 @@ else:
         }
         m.add_legend(title="RWH Suitability", legend_dict=legend_dict)
 
-        # --- 6. FIND & MARK BEST SITE ---
+        # --- 6. FIX: FIND & MARK BEST SITE (Using Folium Directly) ---
         try:
-            # Calculate max pixel value in the ROI
+            # Calculate max pixel value
             max_val = suitability.reduceRegion(
                 reducer=ee.Reducer.max(),
                 geometry=roi,
@@ -524,10 +508,8 @@ else:
                 bestEffort=True
             ).get('score')
             
-            # Create a mask for pixels that equal the max value
+            # Mask and find centroid
             max_pixels = suitability.eq(ee.Number(max_val))
-            
-            # Find the centroid of the highest scoring area
             best_site_geom = max_pixels.reduceToVectors(
                 geometry=roi, 
                 scale=30, 
@@ -537,23 +519,23 @@ else:
                 bestEffort=True
             )
             
-            # Extract coordinates if found
             if best_site_geom.size().getInfo() > 0:
                 best_point = best_site_geom.first().geometry().coordinates().getInfo()
-                # GEE returns [lon, lat], folium needs [lat, lon]
                 best_lat, best_lon = best_point[1], best_point[0]
                 
-                m.add_marker(
+                # REPLACED problematic add_marker with direct Folium Marker
+                icon = folium.Icon(color='green', icon='star')
+                marker = folium.Marker(
                     location=[best_lat, best_lon], 
-                    popup="★ Best Potential Site", 
+                    popup="Best Potential Site", 
                     tooltip="Highest Suitability Score",
-                    icon="star",
-                    icon_color="green" # Folium icon color
+                    icon=icon
                 )
+                marker.add_to(m) # Add directly to map instance
+                
                 st.toast("Best Site Located!", icon="⭐")
         except Exception as e:
-            st.warning(f"Could not pinpoint best site automatically: {e}")
-
+            st.warning(f"Note: Auto-site finder skipped ({e})")
 
         with col_res:
             st.markdown('<div class="glass-card">', unsafe_allow_html=True)
