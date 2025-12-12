@@ -386,9 +386,11 @@ with st.sidebar:
     
     with st.container():
         st.markdown("### 1. Site Selection (ROI)")
+        
+        # REORDERED OPTIONS HERE as requested
         roi_method = st.radio(
             "Selection Mode", 
-            ["Select Admin Boundary", "Upload KML", "Point & Buffer", "Manual Coordinates"], 
+            ["Upload KML", "Select Admin Boundary", "Point & Buffer", "Manual Coordinates"], 
             label_visibility="collapsed"
         )
         
