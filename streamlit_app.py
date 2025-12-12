@@ -520,7 +520,7 @@ with st.sidebar:
 st.markdown("""
 <div class="hud-header">
     <div>
-        <div class="hud-title">GeoSarovar ANALYTICS</div>
+        <div class="hud-title">GeoSarovar</div>
         <div style="color:#5c6b7f; font-size:0.9rem; margin-top:5px; font-weight:600;">ADVANCED RAINWATER HARVESTING SUITABILITY SYSTEM</div>
     </div>
     <div style="text-align:right;">
@@ -702,3 +702,4 @@ else:
 
     with col_map:
         m.to_streamlit()
+
