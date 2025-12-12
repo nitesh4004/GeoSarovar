@@ -546,6 +546,15 @@ else:
     # Manually add Esri World Imagery (High Res)
     esri_url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
     m.add_tile_layer(url=esri_url, name="Esri World Imagery", attribution="Esri")
+
+    # --- ADDED: 3 Lines about the Webapp Right Below Basemap ---
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 15px; color: #5c6b7f; font-size: 0.95rem;">
+    GeoSarovar is an advanced geospatial analytics platform designed to identify optimal rainwater harvesting sites using satellite intelligence. 
+    By integrating topography, land use, soil data, and rainfall patterns, it generates precise suitability models for sustainable water management. 
+    Empowering planners and communities with data-driven insights to secure water resources for the future.
+    </div>
+    """, unsafe_allow_html=True)
     
     m.centerObject(roi, 13)
 
