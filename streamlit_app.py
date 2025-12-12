@@ -15,6 +15,10 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 import folium 
+import geopandas as gpd
+import zipfile
+import os
+import tempfile
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(
@@ -322,6 +326,56 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         return buf
     except: return None
 
+@st.cache_data(show_spinner=False)
+def load_admin_data(url):
+    """Downloads and reads shapefile from URL (cached)"""
+    try:
+        temp_dir = tempfile.mkdtemp()
+        zip_path = os.path.join(temp_dir, "data.zip")
+        response = requests.get(url, stream=True)
+        if response.status_code != 200: return None
+        with open(zip_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        # Extract
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir)
+            
+        # Read first shapefile found
+        for root, dirs, files in os.walk(temp_dir):
+            for file in files:
+                if file.endswith(".shp") or file.endswith(".geojson"):
+                    gdf = gpd.read_file(os.path.join(root, file))
+                    # Standardize columns
+                    col_map = {
+                        'STATE_UT': 'STATE', 'State': 'STATE',
+                        'Name': 'District', 'Sub_dist': 'Subdistrict'
+                    }
+                    gdf.rename(columns=col_map, inplace=True)
+                    # Ensure EPSG:4326 for Earth Engine
+                    if gdf.crs != "EPSG:4326":
+                        gdf = gdf.to_crs("EPSG:4326")
+                    return gdf
+        return None
+    except Exception as e:
+        return None
+
+def geopandas_to_ee(gdf_row):
+    """Converts a single GeoPandas row to Earth Engine Geometry"""
+    try:
+        # Get GeoJSON geometry from the row
+        gjson = json.loads(gdf_row.geometry.to_json())
+        # Extract coordinates and type
+        if 'features' in gjson:
+            geom_data = gjson['features'][0]['geometry']
+        else:
+            geom_data = gjson
+        return ee.Geometry(geom_data)
+    except Exception as e:
+        st.error(f"Geometry conversion error: {e}")
+        return None
+
 # --- 5. SIDEBAR (CONTROL PANEL) ---
 with st.sidebar:
     # LOGO DISPLAY
@@ -335,10 +389,60 @@ with st.sidebar:
     
     with st.container():
         st.markdown("### 1. Site Selection (ROI)")
-        roi_method = st.radio("Selection Mode", ["Upload KML", "Point & Buffer", "Manual Coordinates"], label_visibility="collapsed")
+        roi_method = st.radio(
+            "Selection Mode", 
+            ["Select Admin Boundary", "Upload KML", "Point & Buffer", "Manual Coordinates"], 
+            label_visibility="collapsed"
+        )
         
         new_roi = None
-        if roi_method == "Upload KML":
+
+        # --- OPTION 1: ADMIN BOUNDARY (New Feature) ---
+        if roi_method == "Select Admin Boundary":
+            admin_level = st.selectbox("Granularity", ["Districts", "Subdistricts", "States"])
+            
+            # URL Mapping
+            data_url = None
+            if admin_level == "Districts":
+                data_url = 'https://drive.google.com/uc?id=1tMyiUheQBcwwPwZQla67PwC5-AqenTmv'
+            elif admin_level == "Subdistricts":
+                data_url = 'https://drive.google.com/uc?id=18lMyt2j3Xjz_Qk_2Kzppr8EVlVDx_yOv'
+            elif admin_level == "States":
+                data_url = "https://github.com/nitesh4004/GeoFormatX/raw/main/STATE_BOUNDARY.zip"
+
+            if data_url:
+                with st.spinner("Fetching Administrative Data..."):
+                    gdf = load_admin_data(data_url)
+                
+                if gdf is not None:
+                    # Filter Logic
+                    final_selection = gdf
+                    
+                    if 'STATE' in gdf.columns:
+                        states = sorted(gdf['STATE'].astype(str).unique())
+                        sel_state = st.selectbox("State", states)
+                        final_selection = final_selection[final_selection['STATE'] == sel_state]
+                        
+                        if 'District' in gdf.columns and not final_selection.empty:
+                            dists = sorted(final_selection['District'].astype(str).unique())
+                            sel_dist = st.selectbox("District", dists)
+                            final_selection = final_selection[final_selection['District'] == sel_dist]
+                            
+                            if 'Subdistrict' in gdf.columns and not final_selection.empty:
+                                subs = sorted(final_selection['Subdistrict'].astype(str).unique())
+                                sel_sub = st.selectbox("Subdistrict", subs)
+                                final_selection = final_selection[final_selection['Subdistrict'] == sel_sub]
+                    
+                    # Convert Result to EE
+                    if not final_selection.empty:
+                        # Take the first match
+                        row = final_selection.iloc[[0]] 
+                        st.info(f"Selected: {len(final_selection)} Feature(s)")
+                        new_roi = geopandas_to_ee(row)
+                else:
+                    st.error("Failed to load map data.")
+        
+        elif roi_method == "Upload KML":
             kml = st.file_uploader("Drop KML File", type=['kml'])
             if kml:
                 kml.seek(0)
@@ -495,7 +599,7 @@ else:
 
         legend_dict = {
             "Excellent Potential": "1a9641", 
-            "Good Potential": "a6d96a",       
+            "Good Potential": "a6d96a",        
             "Moderate Potential": "ffffbf",  
             "Low Potential": "fdae61",        
             "Not Suitable": "d7191c"              
