@@ -17,125 +17,139 @@ import numpy as np
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(
-    page_title="SpecTralNi30 - RWH Analytics", 
-    page_icon="🌧️", 
+    page_title="GeoSarovar - RWH Analytics", 
+    page_icon="💧", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- 2. ADVANCED CSS STYLING (Cyber-Glass UI) ---
+# --- 2. ADVANCED CSS STYLING (Hydro-Glass UI) ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;500;700&family=Inter:wght@300;400;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Lato:wght@300;400;700&display=swap');
     
     :root {
-        --bg-color: #050509;
-        --card-bg: rgba(20, 24, 35, 0.7);
-        --glass-border: 1px solid rgba(255, 255, 255, 0.08);
-        --accent-primary: #00f2ff;
-        --accent-secondary: #7000ff;
-        --text-primary: #e2e8f0;
+        --bg-color: #0f2027;
+        --card-bg: rgba(16, 42, 67, 0.65);
+        --glass-border: 1px solid rgba(129, 230, 217, 0.15);
+        --accent-primary: #4fd1c5;   /* Teal/Cyan */
+        --accent-secondary: #68d391; /* Fresh Green */
+        --text-primary: #e6fffa;
+        --text-secondary: #b2f5ea;
     }
 
     .stApp { 
-        background-image: radial-gradient(circle at 50% 0%, #1a1f35 0%, #050509 100%);
-        font-family: 'Inter', sans-serif;
+        background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+        font-family: 'Lato', sans-serif;
     }
 
-    h1, h2, h3, .title-font { font-family: 'Rajdhani', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; }
+    h1, h2, h3, .title-font { font-family: 'Rajdhani', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; color: var(--text-primary) !important; }
     p, label, .stMarkdown, div { color: var(--text-primary) !important; }
 
+    /* Sidebar Styling */
     section[data-testid="stSidebar"] {
-        background-color: rgba(10, 12, 16, 0.9);
+        background-color: rgba(12, 28, 40, 0.85);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
+        backdrop-filter: blur(12px);
     }
     
+    /* Input Fields */
     .stTextInput > div > div, .stNumberInput > div > div, .stSelectbox > div > div, .stDateInput > div > div {
-        background-color: rgba(255, 255, 255, 0.03) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 4px;
+        background-color: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(79, 209, 197, 0.3) !important;
+        border-radius: 6px;
         color: #fff !important;
     }
     
+    /* Primary Buttons */
     div.stButton > button:first-child {
-        background: linear-gradient(90deg, var(--accent-secondary) 0%, #4c1d95 100%);
+        background: linear-gradient(90deg, #319795 0%, #38a169 100%);
         border: none;
         color: white;
         font-family: 'Rajdhani', sans-serif;
         font-weight: 700;
         letter-spacing: 1px;
         padding: 0.6rem;
-        transition: transform 0.2s, box-shadow 0.2s;
+        border-radius: 6px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
     div.stButton > button:first-child:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(112, 0, 255, 0.4);
+        box-shadow: 0 6px 15px rgba(56, 161, 105, 0.4);
+        background: linear-gradient(90deg, #2c7a7b 0%, #2f855a 100%);
     }
 
+    /* HUD Header */
     .hud-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        background: rgba(255, 255, 255, 0.02);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        padding: 15px 25px;
+        background: rgba(16, 42, 67, 0.4);
+        border-bottom: 1px solid rgba(129, 230, 217, 0.2);
+        padding: 20px 25px;
         border-radius: 0 0 15px 15px;
         margin-bottom: 25px;
+        backdrop-filter: blur(5px);
     }
     .hud-title {
         font-family: 'Rajdhani', sans-serif;
-        font-size: 1.8rem;
+        font-size: 2.0rem;
         font-weight: 700;
-        background: -webkit-linear-gradient(0deg, #fff, #94a3b8);
+        background: -webkit-linear-gradient(0deg, #e6fffa, #81e6d9);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
     .hud-badge {
-        background: rgba(0, 242, 255, 0.1);
-        border: 1px solid rgba(0, 242, 255, 0.3);
+        background: rgba(79, 209, 197, 0.15);
+        border: 1px solid rgba(79, 209, 197, 0.4);
         color: var(--accent-primary);
-        padding: 4px 10px;
-        border-radius: 4px;
-        font-size: 0.7rem;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
         font-family: 'Rajdhani', sans-serif;
         font-weight: 600;
     }
 
+    /* Glass Cards */
     .glass-card {
         background: var(--card-bg);
         border: var(--glass-border);
         padding: 20px;
-        border-radius: 10px;
+        border-radius: 12px;
         margin-bottom: 15px;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(8px);
     }
     .card-label {
         font-family: 'Rajdhani', sans-serif;
         color: var(--accent-primary);
-        font-size: 0.9rem;
+        font-size: 1.0rem;
+        font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 10px;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-        padding-bottom: 5px;
+        letter-spacing: 1.2px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        padding-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
     
     iframe {
-        border-radius: 10px;
-        border: 1px solid rgba(255,255,255,0.1);
-        box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        border-radius: 12px;
+        border: 1px solid rgba(129, 230, 217, 0.2);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
     }
     
-    .metric-value {
-        font-family: 'Rajdhani', sans-serif;
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #fff;
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+        width: 8px;
+        background: #0f2027;
     }
-    .metric-sub {
-        font-size: 0.8rem;
-        color: #94a3b8;
+    ::-webkit-scrollbar-thumb {
+        background: #2c7a7b; 
+        border-radius: 4px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -241,21 +255,22 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         if response.status_code != 200: return None
         img_pil = Image.open(BytesIO(response.content))
         
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300, facecolor='#000000')
-        ax.set_facecolor('#000000')
+        # Dark theme plot
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300, facecolor='#0f2027')
+        ax.set_facecolor('#0f2027')
         im = ax.imshow(img_pil, extent=[min_lon, max_lon, min_lat, max_lat], aspect='auto')
         
-        ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#00f2ff')
-        ax.tick_params(colors='white', labelcolor='white', labelsize=10)
-        ax.grid(color='white', linestyle='--', linewidth=0.5, alpha=0.2)
+        ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#4fd1c5')
+        ax.tick_params(colors='#e6fffa', labelcolor='#e6fffa', labelsize=10)
+        ax.grid(color='#e6fffa', linestyle='--', linewidth=0.5, alpha=0.15)
         for spine in ax.spines.values():
-            spine.set_edgecolor('white')
+            spine.set_edgecolor('#e6fffa')
             spine.set_alpha(0.3)
         
-        # North Arrow & Scale Bar logic same as before...
+        # North Arrow
         ax.annotate('N', xy=(0.97, 0.95), xytext=(0.97, 0.88),
                     xycoords='axes fraction', textcoords='axes fraction',
-                    arrowprops=dict(facecolor='white', edgecolor='white', width=4, headwidth=12, headlength=10),
+                    arrowprops=dict(facecolor='#4fd1c5', edgecolor='white', width=4, headwidth=12, headlength=10),
                     ha='center', va='center', fontsize=16, fontweight='bold', color='white',
                     path_effects=[PathEffects.withStroke(linewidth=2, foreground="black")])
 
@@ -282,7 +297,7 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
             plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white', fontsize=10)
         
         buf = BytesIO()
-        plt.savefig(buf, format='jpg', bbox_inches='tight', facecolor='#000000')
+        plt.savefig(buf, format='jpg', bbox_inches='tight', facecolor='#0f2027')
         buf.seek(0)
         plt.close(fig)
         return buf
@@ -290,15 +305,17 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
 
 # --- 5. SIDEBAR (CONTROL PANEL) ---
 with st.sidebar:
+    # LOGO DISPLAY (Using raw GitHub link for proper rendering)
+    st.image("https://raw.githubusercontent.com/nitesh4004/GeoSarovar/main/geosarovar.png", use_container_width=True)
+    
     st.markdown("""
-        <div style="margin-bottom: 20px;">
-            <h2 style="font-family: 'Rajdhani'; color: #fff; margin:0;">SpecTralNi30</h2>
-            <p style="font-size: 0.8rem; color: #00f2ff; letter-spacing: 2px; margin:0;">RAINWATER HARVESTING</p>
+        <div style="margin-bottom: 20px; text-align: center;">
+            <p style="font-size: 0.85rem; color: #4fd1c5; letter-spacing: 3px; margin-top:5px; font-weight:600;">INTELLIGENT RWH ANALYTICS</p>
         </div>
     """, unsafe_allow_html=True)
     
     with st.container():
-        st.markdown("### 1. Target Acquisition (ROI)")
+        st.markdown("### 1. Site Selection (ROI)")
         roi_method = st.radio("Selection Mode", ["Upload KML", "Point & Buffer", "Manual Coordinates"], label_visibility="collapsed")
         
         new_roi = None
@@ -327,30 +344,29 @@ with st.sidebar:
             if st.session_state['roi'] is None or new_roi.getInfo() != st.session_state['roi'].getInfo():
                 st.session_state['roi'] = new_roi
                 st.session_state['calculated'] = False
-                st.toast("Target Locked: ROI Updated", icon="🎯")
+                st.toast("Target Region Locked", icon="🌊")
 
     st.markdown("---")
     
-    st.markdown("### 2. MCDA Weights")
-    st.caption("Multi-Criteria Decision Analysis")
-    w_rain = st.slider("Rainfall Weight (%)", 0, 100, 30)
-    w_slope = st.slider("Slope Weight (%)", 0, 100, 20)
-    w_lulc = st.slider("Land Use Weight (%)", 0, 100, 30)
-    w_soil = st.slider("Soil Weight (%)", 0, 100, 20)
+    st.markdown("### 2. Analysis Weights (MCDA)")
+    st.caption("Adjust importance factors for suitability:")
+    w_rain = st.slider("Rainfall Impact (%)", 0, 100, 30)
+    w_slope = st.slider("Terrain Slope (%)", 0, 100, 20)
+    w_lulc = st.slider("Land Cover (%)", 0, 100, 30)
+    w_soil = st.slider("Soil Type (%)", 0, 100, 20)
     
     total = w_rain + w_slope + w_lulc + w_soil
     if total != 100:
-        st.warning(f"⚠️ Total weight: {total}%. It should ideally be 100%.")
+        st.warning(f"⚠️ Total weight: {total}%. Normalize to 100% for best results.")
     
     st.markdown("---")
-    st.markdown("### 3. Temporal Window")
-    st.caption("For average rainfall calculation")
+    st.markdown("### 3. Historical Data Period")
     c1, c2 = st.columns(2)
-    start = c1.date_input("Start", datetime.now()-timedelta(365*5)) # 5 Years default
-    end = c2.date_input("End", datetime.now())
+    start = c1.date_input("From", datetime.now()-timedelta(365*5)) # 5 Years default
+    end = c2.date_input("To", datetime.now())
 
     st.markdown("###")
-    if st.button("INITIALIZE RWH SCAN 🚀"):
+    if st.button("RUN HYDRO SCAN 💧"):
         if st.session_state['roi']:
             st.session_state.update({
                 'calculated': True,
@@ -362,33 +378,35 @@ with st.sidebar:
                 'w_soil': w_soil/100.0
             })
         else:
-            st.error("❌ Error: ROI not defined.")
+            st.error("❌ Error: Region of Interest (ROI) missing.")
 
 # --- 6. MAIN CONTENT ---
 st.markdown("""
 <div class="hud-header">
     <div>
-        <div class="hud-title">SpecTralNi30 ANALYTICS</div>
-        <div style="color:#94a3b8; font-size:0.9rem;">RWH SITE SUITABILITY MODE</div>
+        <div class="hud-title">GeoSarovar ANALYTICS</div>
+        <div style="color:#b2f5ea; font-size:0.9rem; margin-top:5px;">ADVANCED RAINWATER HARVESTING SUITABILITY SYSTEM</div>
     </div>
     <div style="text-align:right;">
-        <span class="hud-badge">SYSTEM ONLINE</span>
-        <div style="font-family:'Rajdhani'; font-size:1.2rem; margin-top:5px;">""" + datetime.now().strftime("%H:%M UTC") + """</div>
+        <span class="hud-badge">LIVE SATELLITE FEED</span>
+        <div style="font-family:'Rajdhani'; font-size:1.2rem; margin-top:8px; color:#e6fffa;">""" + datetime.now().strftime("%H:%M UTC") + """</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 if not st.session_state['calculated']:
     st.markdown("""
-    <div class="glass-card" style="text-align:center; padding:40px;">
-        <h2 style="color:#fff;">📡 WAITING FOR INPUT</h2>
-        <p style="color:#94a3b8; margin-bottom:20px;">Configure the target ROI and weights in the sidebar to begin Rainwater Harvesting analysis.</p>
+    <div class="glass-card" style="text-align:center; padding:50px;">
+        <h2 style="color:#e6fffa;">🌊 AWAITING INPUT</h2>
+        <p style="color:#b2f5ea; margin-bottom:20px; font-size:1.1rem;">
+            Welcome to GeoSarovar. Please configure your Area of Interest and MCDA weights in the sidebar to generate a suitability model.
+        </p>
     </div>
     """, unsafe_allow_html=True)
     m = geemap.Map(height=500, basemap="HYBRID")
     if st.session_state['roi']:
         m.centerObject(st.session_state['roi'], 12)
-        m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': '#00f2ff'}, 'Target ROI')
+        m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': '#4fd1c5'}, 'Target ROI')
     m.to_streamlit()
 
 else:
@@ -399,7 +417,7 @@ else:
     m = geemap.Map(height=700, basemap="HYBRID")
     m.centerObject(roi, 13)
 
-    with st.spinner("🌧️ Performing MCDA for Rainwater Harvesting..."):
+    with st.spinner("🌧️ Processing Hydro-Geospatial Data..."):
         # 1. RAINFALL (CHIRPS)
         rain_dataset = ee.ImageCollection("UCSB-CHG/CHIRPS/PENTAD") \
             .filterDate(p['start'], p['end']) \
@@ -410,7 +428,7 @@ else:
             min_rain, max_rain = 50, 800
             rain_norm = rain_mean.clamp(min_rain, max_rain).unitScale(min_rain, max_rain)
         else:
-            st.warning("Rainfall data unavailable for range. Using placeholder.")
+            st.warning("Rainfall data unavailable. Using placeholder.")
             rain_norm = ee.Image(0.5).clip(roi)
             rain_mean = rain_norm
 
@@ -439,27 +457,71 @@ else:
         suitability = (rain_norm.multiply(p['w_rain'])) \
             .add(slope_score.multiply(p['w_slope'])) \
             .add(lulc_score.multiply(p['w_lulc'])) \
-            .add(soil_score.multiply(p['w_soil']))
+            .add(soil_score.multiply(p['w_soil'])) \
+            .rename('score') # Renamed for easier tracking
 
         # VISUALIZATION
-        vis_params = {'min': 0, 'max': 0.8, 'palette': ['red', 'orange', 'yellow', 'lightgreen', 'darkgreen']}
+        vis_params = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
+        # Updated palette: Red (Bad) -> Orange -> Yellow -> Light Green -> Dark Green (Good)
         
-        m.addLayer(rain_mean, {'min': 0, 'max': 200, 'palette': ['blue', 'purple']}, 'Rainfall (Raw)', False)
+        m.addLayer(rain_mean, {'min': 0, 'max': 200, 'palette': ['blue', 'cyan']}, 'Rainfall (Raw)', False)
         m.addLayer(slope, {'min': 0, 'max': 30, 'palette': ['white', 'black']}, 'Slope (Raw)', False)
-        m.addLayer(suitability, vis_params, 'RWH Suitability Index')
+        m.addLayer(suitability, vis_params, 'GeoSarovar Suitability Index')
 
         legend_dict = {
-            "Very High Suitability": "006400", 
-            "High Suitability": "90EE90",      
-            "Moderate Suitability": "FFFF00",  
-            "Low Suitability": "FFA500",       
-            "Unsuitable": "FF0000"             
+            "Excellent Potential": "1a9641", 
+            "Good Potential": "a6d96a",       
+            "Moderate Potential": "ffffbf",  
+            "Low Potential": "fdae61",        
+            "Not Suitable": "d7191c"              
         }
         m.add_legend(title="RWH Suitability", legend_dict=legend_dict)
 
+        # --- 6. FIND & MARK BEST SITE ---
+        try:
+            # Calculate max pixel value in the ROI
+            max_val = suitability.reduceRegion(
+                reducer=ee.Reducer.max(),
+                geometry=roi,
+                scale=30,
+                maxPixels=1e9,
+                bestEffort=True
+            ).get('score')
+            
+            # Create a mask for pixels that equal the max value
+            max_pixels = suitability.eq(ee.Number(max_val))
+            
+            # Find the centroid of the highest scoring area
+            best_site_geom = max_pixels.reduceToVectors(
+                geometry=roi, 
+                scale=30, 
+                geometryType='centroid', 
+                labelProperty='label', 
+                maxPixels=1e9,
+                bestEffort=True
+            )
+            
+            # Extract coordinates if found
+            if best_site_geom.size().getInfo() > 0:
+                best_point = best_site_geom.first().geometry().coordinates().getInfo()
+                # GEE returns [lon, lat], folium needs [lat, lon]
+                best_lat, best_lon = best_point[1], best_point[0]
+                
+                m.add_marker(
+                    location=[best_lat, best_lon], 
+                    popup="★ Best Potential Site", 
+                    tooltip="Highest Suitability Score",
+                    icon="star",
+                    icon_color="green" # Folium icon color
+                )
+                st.toast("Best Site Located!", icon="⭐")
+        except Exception as e:
+            st.warning(f"Could not pinpoint best site automatically: {e}")
+
+
         with col_res:
             st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-            st.markdown('<div class="card-label">🌧️ RWH ANALYTICS</div>', unsafe_allow_html=True)
+            st.markdown('<div class="card-label">📊 AREA BREAKDOWN</div>', unsafe_allow_html=True)
             
             # Classification for stats
             suit_class = ee.Image(0).where(suitability.lt(0.2), 1) \
@@ -468,32 +530,33 @@ else:
                 .where(suitability.gte(0.6).And(suitability.lt(0.8)), 4) \
                 .where(suitability.gte(0.8), 5).clip(roi)
             
-            st.markdown('<div class="card-label">📊 SUITABLE AREA</div>', unsafe_allow_html=True)
-            with st.spinner("Calculating potential area..."):
+            with st.spinner("Calculating..."):
                 df_area = calculate_area_by_class(suit_class, roi, 30)
                 if not df_area.empty:
-                    name_map = {"Class 1": "Unsuitable", "Class 2": "Low", "Class 3": "Moderate", "Class 4": "High", "Class 5": "Very High"}
+                    name_map = {"Class 1": "Unsuitable", "Class 2": "Low", "Class 3": "Moderate", "Class 4": "Good", "Class 5": "Excellent"}
                     df_area['Class'] = df_area['Class'].map(name_map).fillna(df_area['Class'])
                     st.dataframe(df_area, hide_index=True, use_container_width=True)
 
             st.markdown("---")
-            if st.button("☁️ Export Suitability Map"):
+            st.markdown('<div class="card-label">📥 EXPORT DATA</div>', unsafe_allow_html=True)
+            
+            if st.button("Save to Drive (GeoTIFF)"):
                     ee.batch.Export.image.toDrive(
-                    image=suitability, description=f"RWH_Suitability_{datetime.now().strftime('%Y%m%d')}", 
-                    scale=30, region=roi, folder='GEE_Exports'
+                    image=suitability, description=f"GeoSarovar_RWH_{datetime.now().strftime('%Y%m%d')}", 
+                    scale=30, region=roi, folder='GeoSarovar_Exports'
                 ).start()
-                    st.toast("Export started")
+                    st.toast("Export Task Started")
             
             st.markdown("---")
-            map_title = st.text_input("Map Title", "RWH Site Suitability")
-            if st.button("📷 Render Map (JPG)"):
-                    with st.spinner("Generating Map..."):
+            map_title = st.text_input("Report Title", "GeoSarovar Site Analysis")
+            if st.button("Generate Report Image"):
+                    with st.spinner("Rendering High-Res Map..."):
                         buf = generate_static_map_display(
                             suitability, roi, vis_params, map_title, 
                             cmap_colors=vis_params['palette']
                         )
                         if buf:
-                            st.download_button("⬇️ Save Image", buf, "Ni30_RWH.jpg", "image/jpeg", use_container_width=True)
+                            st.download_button("Download JPG", buf, "GeoSarovar_Map.jpg", "image/jpeg", use_container_width=True)
 
             st.markdown('</div>', unsafe_allow_html=True)
 
