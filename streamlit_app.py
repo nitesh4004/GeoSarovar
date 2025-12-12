@@ -19,6 +19,7 @@ import geopandas as gpd
 import zipfile
 import os
 import tempfile
+import gdown  # CRITICAL: Added for reliable Google Drive downloads
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(
@@ -28,7 +29,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. CSS STYLING (White & Dark Blue Theme) ---
+# --- 2. CSS STYLING ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;600&display=swap');
@@ -73,35 +74,12 @@ st.markdown("""
         border-radius: 6px;
         color: #00204a !important;
     }
-    
-    /* Calendar Widget Styling (Light Theme) */
-    div[data-baseweb="popover"] > div {
-        background-color: #ffffff !important;
-        border: 1px solid var(--accent-primary) !important;
-    }
-    div[data-baseweb="calendar"] {
-        background-color: #ffffff !important;
-    }
-    div[data-baseweb="calendar"] button {
-        color: #00204a !important;
-    }
-    div[data-baseweb="calendar"] div {
-        color: #00204a !important;
-    }
-    div[data-baseweb="calendar"] button:hover {
-        background-color: #e6f0ff !important;
-        color: #00204a !important;
-    }
-    div[data-baseweb="calendar"] button[aria-selected="true"] {
-        background-color: var(--accent-primary) !important;
-        color: #ffffff !important;
-    }
 
     /* Primary Buttons */
     div.stButton > button:first-child {
         background: var(--accent-primary);
         border: none;
-        color: white !important; /* White text on button */
+        color: white !important; 
         font-family: 'Rajdhani', sans-serif;
         font-weight: 700;
         letter-spacing: 1px;
@@ -326,36 +304,55 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         return buf
     except: return None
 
+# --- ADMIN DATA LOADER (FIXED WITH GDOWN) ---
 @st.cache_data(show_spinner=False)
-def load_admin_data(url):
-    """Downloads and reads shapefile from URL (cached)"""
+def load_admin_data(url, is_gdrive=False):
+    """
+    Downloads and reads shapefile. 
+    Uses gdown for Google Drive links to handle permissions/large files.
+    """
     try:
         temp_dir = tempfile.mkdtemp()
         zip_path = os.path.join(temp_dir, "data.zip")
-        response = requests.get(url, stream=True)
-        if response.status_code != 200: return None
-        with open(zip_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
         
-        # Extract
+        if is_gdrive:
+            # Gdown handles drive links much better than requests
+            gdown.download(url, zip_path, quiet=True, fuzzy=True)
+        else:
+            # Standard request for direct links (Github)
+            response = requests.get(url, stream=True)
+            if response.status_code != 200: return None
+            with open(zip_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        
+        # Extract and Find Shapefile
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir)
             
-        # Read first shapefile found
         for root, dirs, files in os.walk(temp_dir):
             for file in files:
                 if file.endswith(".shp") or file.endswith(".geojson"):
                     gdf = gpd.read_file(os.path.join(root, file))
-                    # Standardize columns
+                    
+                    # Standardization of Column Names
                     col_map = {
                         'STATE_UT': 'STATE', 'State': 'STATE',
                         'Name': 'District', 'Sub_dist': 'Subdistrict'
                     }
                     gdf.rename(columns=col_map, inplace=True)
+                    
+                    # Convert Text to String to avoid object errors
+                    for col in ['District', 'STATE', 'Subdistrict']:
+                        if col in gdf.columns:
+                            gdf[col] = gdf[col].astype(str).str.strip()
+
                     # Ensure EPSG:4326 for Earth Engine
-                    if gdf.crs != "EPSG:4326":
+                    if gdf.crs is None:
+                        gdf.set_crs(epsg=4326, inplace=True)
+                    elif gdf.crs != "EPSG:4326":
                         gdf = gdf.to_crs("EPSG:4326")
+                        
                     return gdf
         return None
     except Exception as e:
@@ -397,22 +394,27 @@ with st.sidebar:
         
         new_roi = None
 
-        # --- OPTION 1: ADMIN BOUNDARY (New Feature) ---
+        # --- OPTION 1: ADMIN BOUNDARY (Uses GDOWN for Drive Links) ---
         if roi_method == "Select Admin Boundary":
             admin_level = st.selectbox("Granularity", ["Districts", "Subdistricts", "States"])
             
             # URL Mapping
             data_url = None
+            is_drive = False
+            
             if admin_level == "Districts":
                 data_url = 'https://drive.google.com/uc?id=1tMyiUheQBcwwPwZQla67PwC5-AqenTmv'
+                is_drive = True
             elif admin_level == "Subdistricts":
                 data_url = 'https://drive.google.com/uc?id=18lMyt2j3Xjz_Qk_2Kzppr8EVlVDx_yOv'
+                is_drive = True
             elif admin_level == "States":
                 data_url = "https://github.com/nitesh4004/GeoFormatX/raw/main/STATE_BOUNDARY.zip"
+                is_drive = False
 
             if data_url:
                 with st.spinner("Fetching Administrative Data..."):
-                    gdf = load_admin_data(data_url)
+                    gdf = load_admin_data(data_url, is_drive)
                 
                 if gdf is not None:
                     # Filter Logic
@@ -440,7 +442,7 @@ with st.sidebar:
                         st.info(f"Selected: {len(final_selection)} Feature(s)")
                         new_roi = geopandas_to_ee(row)
                 else:
-                    st.error("Failed to load map data.")
+                    st.error("Failed to load map data. Check internet or Drive permissions.")
         
         elif roi_method == "Upload KML":
             kml = st.file_uploader("Drop KML File", type=['kml'])
