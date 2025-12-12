@@ -61,6 +61,40 @@ st.markdown("""
         color: #fff !important;
     }
     
+    /* --- FIX: CALENDAR WIDGET VISIBILITY --- */
+    /* Force the calendar container to have a dark background */
+    div[data-baseweb="popover"] > div {
+        background-color: #0f2027 !important;
+        border: 1px solid var(--accent-primary) !important;
+    }
+    
+    div[data-baseweb="calendar"] {
+        background-color: #0f2027 !important;
+    }
+    
+    /* Day Numbers */
+    div[data-baseweb="calendar"] button {
+        color: #e6fffa !important;
+    }
+    
+    /* Month/Year Headers */
+    div[data-baseweb="calendar"] div {
+        color: #e6fffa !important;
+    }
+    
+    /* Hover effects on days */
+    div[data-baseweb="calendar"] button:hover {
+        background-color: var(--accent-primary) !important;
+        color: #000 !important;
+    }
+    
+    /* Selected Day */
+    div[data-baseweb="calendar"] button[aria-selected="true"] {
+        background-color: var(--accent-primary) !important;
+        color: #000 !important;
+    }
+    /* --- END CALENDAR FIX --- */
+
     /* Primary Buttons */
     div.stButton > button:first-child {
         background: linear-gradient(90deg, #319795 0%, #38a169 100%);
@@ -414,7 +448,9 @@ else:
     p = st.session_state
     
     col_map, col_res = st.columns([3, 1])
-    m = geemap.Map(height=700, basemap="HYBRID")
+    
+    # --- UPDATED: Explicitly using Esri World Imagery to fix missing basemap ---
+    m = geemap.Map(height=700, basemap="Esri.WorldImagery")
     m.centerObject(roi, 13)
 
     with st.spinner("🌧️ Processing Hydro-Geospatial Data..."):
