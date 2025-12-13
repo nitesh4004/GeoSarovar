@@ -321,7 +321,7 @@ with st.sidebar:
         new_roi = ee.Geometry.Point([lon, lat]).buffer(rad).bounds()
 
     if new_roi:
-        # --- FIX: Simplify Geometry to prevent GEE "Payload Too Large" / "Timeout" Errors ---
+        # Simplify geometry to avoid timeouts
         st.session_state['roi'] = new_roi.simplify(maxError=50) 
         st.success("ROI Locked ✅")
 
@@ -465,7 +465,15 @@ else:
                     .filterBounds(roi) \
                     .filterDate(f'{year}-01-01', f'{year}-04-30') \
                     .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
-                    .map(lambda img: img.updateMask(img.select('QA60').bitwiseAnd(1<<10).eq(0)).divide(10000))
+                    # --- FIX: USE SCL BAND INSTEAD OF QA60 ---
+                    # SCL Values: 0=No Data, 1=Saturated, 3=Cloud Shadows, 8=Cloud Medium, 9=Cloud High, 10=Cirrus, 11=Snow
+                    # We keep pixels that are NOT 3, 8, 9, 10 (Shadows/Clouds)
+                    .map(lambda img: img.updateMask(
+                        img.select('SCL').neq(9).And(
+                            img.select('SCL').neq(8)).And(
+                            img.select('SCL').neq(3)).And(
+                            img.select('SCL').neq(10))
+                    ).divide(10000))
                 
                 if col.size().getInfo() == 0: return None
                 img = col.median().clip(roi)
