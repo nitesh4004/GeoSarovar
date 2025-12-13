@@ -386,27 +386,16 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Helper for Safe Map Loading - FIX FOR BOXKEYERROR
+# Helper for Safe Map Loading
 def get_safe_map(height=500):
-    # CRITICAL FIX: Do NOT set basemap in constructor to avoid KeyErrors
-    m = geemap.Map(height=height, basemap=None) 
-    
-    # Manually add OpenStreetMap as base
-    m.add_tile_layer(
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        name="OpenStreetMap",
-        attribution="OpenStreetMap"
-    )
-    
-    # Manually add Esri Satellite (This is what you asked for)
+    # Initialize basic map (OSM default, never fails)
+    m = geemap.Map(height=height) 
+    # Force Add Esri Satellite Layer manually (Bypassing geemap internal dictionary)
     m.add_tile_layer(
         url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         name="Esri Satellite",
         attribution="Esri"
     )
-    
-    # Add Control to switch between them
-    m.add_layer_control()
     return m
 
 if not st.session_state['calculated']:
@@ -558,15 +547,13 @@ else:
                     pixel_area = encroachment.multiply(ee.Image.pixelArea())
                     stats_loss = pixel_area.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9, bestEffort=True)
                     # Safe retrieval
-                    val_loss_list = stats_loss.values()
-                    val_loss = val_loss_list.get(0).getInfo() if val_loss_list.size().getInfo() > 0 else 0
+                    val_loss = stats_loss.values().get(0).getInfo()
                     loss_ha = round((val_loss or 0) / 10000, 2)
                     
                     pixel_area_gain = new_water.multiply(ee.Image.pixelArea())
                     stats_gain = pixel_area_gain.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9, bestEffort=True)
                     # Safe retrieval
-                    val_gain_list = stats_gain.values()
-                    val_gain = val_gain_list.get(0).getInfo() if val_gain_list.size().getInfo() > 0 else 0
+                    val_gain = stats_gain.values().get(0).getInfo()
                     gain_ha = round((val_gain or 0) / 10000, 2)
 
                     with col_res:
