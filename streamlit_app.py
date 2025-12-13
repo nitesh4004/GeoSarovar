@@ -386,11 +386,23 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# Helper for Safe Map Loading
+def get_safe_map(height=500):
+    # Initialize basic map (OSM default, never fails)
+    m = geemap.Map(height=height) 
+    # Force Add Esri Satellite Layer manually (Bypassing geemap internal dictionary)
+    m.add_tile_layer(
+        url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        name="Esri Satellite",
+        attribution="Esri"
+    )
+    return m
+
 if not st.session_state['calculated']:
     st.info("👈 Please select a module and a location in the sidebar to begin.")
     
-    # --- FIXED: Use explicit 'Esri.WorldImagery' instead of 'HYBRID' ---
-    m = geemap.Map(height=500, basemap="Esri.WorldImagery") 
+    # --- FIXED INITIAL MAP ---
+    m = get_safe_map(500)
     
     if st.session_state['roi']:
         m.centerObject(st.session_state['roi'], 12)
@@ -404,8 +416,8 @@ else:
     
     col_map, col_res = st.columns([3, 1])
     
-    # --- FIXED: Result map also uses Esri.WorldImagery ---
-    m = geemap.Map(height=700, basemap="Esri.WorldImagery")
+    # --- FIXED RESULT MAP ---
+    m = get_safe_map(700)
     m.centerObject(roi, 13)
 
     # ==========================================
