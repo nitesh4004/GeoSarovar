@@ -267,8 +267,8 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 2. Location (ROI)")
     
-    # REPLACED Point & Buffer with "Draw Your AOI"
-    roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "🖌️ Draw Your AOI"], label_visibility="collapsed")
+    # Selection Mode (Order: KML, Admin, Point)
+    roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
     new_roi = None
 
     if roi_method == "Upload KML":
@@ -312,12 +312,16 @@ with st.sidebar:
                 if not gdf.empty:
                     new_roi = geopandas_to_ee(gdf.iloc[[0]])
                     st.info(f"Selected: {len(gdf)} Feature")
-    
-    elif roi_method == "🖌️ Draw Your AOI":
-        st.info("👇 Use the map in the main window to draw your area.")
-        # We don't set new_roi here; we capture it from the map below
+        
+    elif roi_method == "Point & Buffer":
+        c1, c2 = st.columns(2)
+        lat = c1.number_input("Lat", value=20.59)
+        lon = c2.number_input("Lon", value=78.96)
+        rad = st.number_input("Radius (m)", value=5000)
+        new_roi = ee.Geometry.Point([lon, lat]).buffer(rad).bounds()
 
     if new_roi:
+        # Simplify geometry to avoid timeouts
         st.session_state['roi'] = new_roi.simplify(maxError=50) 
         st.success("ROI Locked ✅")
 
@@ -374,37 +378,14 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ----------------------------------------------------
-# DRAWING MAP LOGIC (Active when no calculation runs)
-# ----------------------------------------------------
 if not st.session_state['calculated']:
-    if roi_method == "🖌️ Draw Your AOI":
-        st.markdown('<div class="glass-card"><h3>🖌️ Draw Your Area of Interest</h3><p>Use the polygon tool (pentagon icon) on the left to draw your site boundary.</p></div>', unsafe_allow_html=True)
-        
-        # Initialize Drawing Map
-        m_draw = geemap.Map(height=500, basemap="HYBRID")
-        m_draw.centerObject(ee.Geometry.Point([78.96, 20.59]), 5) # India Centered
-        
-        # Capture Drawing Output (Bidirectional)
-        output = m_draw.to_streamlit(bidirectional=True)
-        
-        # Check if user drew something
-        if output and 'last_active_drawing' in output and output['last_active_drawing']:
-            geometry = output['last_active_drawing']['geometry']
-            st.session_state['roi'] = ee.Geometry(geometry).simplify(maxError=50)
-            st.success("Drawing Captured! You can now click 'RUN ANALYSIS' in the sidebar.")
-    else:
-        # Standard "Awaiting Input" View
-        st.info("👈 Please select a module and a location in the sidebar to begin.")
-        m = geemap.Map(height=500, basemap="HYBRID")
-        if st.session_state['roi']:
-            m.centerObject(st.session_state['roi'], 12)
-            m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': 'yellow'}, 'ROI')
-        m.to_streamlit()
+    st.info("👈 Please select a module and a location in the sidebar to begin.")
+    m = geemap.Map(height=500, basemap="HYBRID")
+    if st.session_state['roi']:
+        m.centerObject(st.session_state['roi'], 12)
+        m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': 'yellow'}, 'ROI')
+    m.to_streamlit()
 
-# ----------------------------------------------------
-# ANALYSIS RESULT VIEW (Active after "Run Analysis")
-# ----------------------------------------------------
 else:
     roi = st.session_state['roi']
     mode = st.session_state['mode']
