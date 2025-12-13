@@ -267,7 +267,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 2. Location (ROI)")
     
-    # REORDERED: Upload KML is now first
+    # Selection Mode (Order: KML, Admin, Point)
     roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
     new_roi = None
 
@@ -321,7 +321,8 @@ with st.sidebar:
         new_roi = ee.Geometry.Point([lon, lat]).buffer(rad).bounds()
 
     if new_roi:
-        st.session_state['roi'] = new_roi
+        # --- FIX: Simplify Geometry to prevent GEE "Payload Too Large" / "Timeout" Errors ---
+        st.session_state['roi'] = new_roi.simplify(maxError=50) 
         st.success("ROI Locked ✅")
 
     st.markdown("---")
@@ -429,7 +430,7 @@ else:
 
             # Best Site Finder
             try:
-                max_val = suitability.reduceRegion(ee.Reducer.max(), roi, 30, maxPixels=1e9).get('constant') # 'constant' or 'b1'
+                max_val = suitability.reduceRegion(ee.Reducer.max(), roi, 30, maxPixels=1e9).get('constant') 
                 if max_val:
                     best_geom = suitability.eq(ee.Number(max_val)).reduceToVectors(geometry=roi, scale=30, geometryType='centroid', maxPixels=1e9)
                     if best_geom.size().getInfo() > 0:
@@ -472,35 +473,40 @@ else:
                 mndwi = img.normalizedDifference(['B3', 'B11'])
                 return mndwi.gt(0.1).selfMask() 
 
-            water_hist = get_water(p['hist_year'])
-            water_curr = get_water(p['curr_year'])
+            # Wrap computations in try-except to catch GEE tile errors
+            try:
+                water_hist = get_water(p['hist_year'])
+                water_curr = get_water(p['curr_year'])
 
-            image_to_export = None
+                image_to_export = None
 
-            if water_hist and water_curr:
-                # Logic: Was Water AND Is Now NOT Water
-                encroachment = water_hist.unmask(0).And(water_curr.unmask(0).Not()).selfMask()
-                image_to_export = encroachment
-                
-                m.addLayer(water_hist, {'palette': ['blue']}, f'Water {p["hist_year"]}')
-                m.addLayer(water_curr, {'palette': ['cyan']}, f'Water {p["curr_year"]}')
-                m.addLayer(encroachment, {'palette': ['red']}, '⚠️ Encroachment')
-                
-                # Stats
-                pixel_area = encroachment.multiply(ee.Image.pixelArea())
-                stats = pixel_area.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9)
-                area_sqm = stats.get('nd').getInfo() if stats.get('nd') else 0
-                area_ha = round(area_sqm / 10000, 2)
-                
-                with col_res:
-                    st.markdown('<div class="alert-card">', unsafe_allow_html=True)
-                    st.markdown(f"### ⚠️ Encroachment Alert")
-                    st.metric("Lost Water Area", f"{area_ha} Ha")
-                    st.caption(f"Decline detected between {p['hist_year']} and {p['curr_year']}")
-                    st.markdown("</div>", unsafe_allow_html=True)
-            else:
-                st.warning("Insufficient satellite data for selected years/location.")
-                image_to_export = ee.Image(0)
+                if water_hist and water_curr:
+                    # Logic: Was Water AND Is Now NOT Water
+                    encroachment = water_hist.unmask(0).And(water_curr.unmask(0).Not()).selfMask()
+                    image_to_export = encroachment
+                    
+                    # Added 'min'/'max' to prevent visualization errors on binary masks
+                    m.addLayer(water_hist, {'palette': ['blue'], 'min':0, 'max':1}, f'Water {p["hist_year"]}')
+                    m.addLayer(water_curr, {'palette': ['cyan'], 'min':0, 'max':1}, f'Water {p["curr_year"]}')
+                    m.addLayer(encroachment, {'palette': ['red'], 'min':0, 'max':1}, '⚠️ Encroachment')
+                    
+                    # Stats
+                    pixel_area = encroachment.multiply(ee.Image.pixelArea())
+                    stats = pixel_area.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9, bestEffort=True)
+                    area_sqm = stats.get('nd').getInfo() if stats.get('nd') else 0
+                    area_ha = round(area_sqm / 10000, 2)
+                    
+                    with col_res:
+                        st.markdown('<div class="alert-card">', unsafe_allow_html=True)
+                        st.markdown(f"### ⚠️ Encroachment Alert")
+                        st.metric("Lost Water Area", f"{area_ha} Ha")
+                        st.caption(f"Decline detected between {p['hist_year']} and {p['curr_year']}")
+                        st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    st.warning("Insufficient satellite data for selected years/location.")
+                    image_to_export = ee.Image(0)
+            except Exception as e:
+                st.error(f"Computation Error: {e}. Try selecting a smaller area or different years.")
 
     # --- COMMON EXPORT TOOLS (Both Modules) ---
     with col_res:
@@ -527,7 +533,7 @@ else:
                     vis_rep = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
                     img_rep = suitability
                 else: 
-                    vis_rep = {'palette': ['red']}
+                    vis_rep = {'palette': ['red'], 'min':0, 'max':1}
                     img_rep = image_to_export if image_to_export else ee.Image(0)
                 
                 buf = generate_static_map_display(img_rep, roi, vis_rep, report_title)
