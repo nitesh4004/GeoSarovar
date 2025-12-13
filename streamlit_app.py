@@ -267,8 +267,8 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 2. Location (ROI)")
     
-    # Selection Mode (Order: KML, Admin, Point)
-    roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
+    # REPLACED Point & Buffer with "Draw Your AOI"
+    roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "🖌️ Draw Your AOI"], label_visibility="collapsed")
     new_roi = None
 
     if roi_method == "Upload KML":
@@ -312,16 +312,12 @@ with st.sidebar:
                 if not gdf.empty:
                     new_roi = geopandas_to_ee(gdf.iloc[[0]])
                     st.info(f"Selected: {len(gdf)} Feature")
-        
-    elif roi_method == "Point & Buffer":
-        c1, c2 = st.columns(2)
-        lat = c1.number_input("Lat", value=20.59)
-        lon = c2.number_input("Lon", value=78.96)
-        rad = st.number_input("Radius (m)", value=5000)
-        new_roi = ee.Geometry.Point([lon, lat]).buffer(rad).bounds()
+    
+    elif roi_method == "🖌️ Draw Your AOI":
+        st.info("👇 Use the map in the main window to draw your area.")
+        # We don't set new_roi here; we capture it from the map below
 
     if new_roi:
-        # Simplify geometry to avoid timeouts
         st.session_state['roi'] = new_roi.simplify(maxError=50) 
         st.success("ROI Locked ✅")
 
@@ -378,14 +374,37 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# ----------------------------------------------------
+# DRAWING MAP LOGIC (Active when no calculation runs)
+# ----------------------------------------------------
 if not st.session_state['calculated']:
-    st.info("👈 Please select a module and a location in the sidebar to begin.")
-    m = geemap.Map(height=500, basemap="HYBRID")
-    if st.session_state['roi']:
-        m.centerObject(st.session_state['roi'], 12)
-        m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': 'yellow'}, 'ROI')
-    m.to_streamlit()
+    if roi_method == "🖌️ Draw Your AOI":
+        st.markdown('<div class="glass-card"><h3>🖌️ Draw Your Area of Interest</h3><p>Use the polygon tool (pentagon icon) on the left to draw your site boundary.</p></div>', unsafe_allow_html=True)
+        
+        # Initialize Drawing Map
+        m_draw = geemap.Map(height=500, basemap="HYBRID")
+        m_draw.centerObject(ee.Geometry.Point([78.96, 20.59]), 5) # India Centered
+        
+        # Capture Drawing Output (Bidirectional)
+        output = m_draw.to_streamlit(bidirectional=True)
+        
+        # Check if user drew something
+        if output and 'last_active_drawing' in output and output['last_active_drawing']:
+            geometry = output['last_active_drawing']['geometry']
+            st.session_state['roi'] = ee.Geometry(geometry).simplify(maxError=50)
+            st.success("Drawing Captured! You can now click 'RUN ANALYSIS' in the sidebar.")
+    else:
+        # Standard "Awaiting Input" View
+        st.info("👈 Please select a module and a location in the sidebar to begin.")
+        m = geemap.Map(height=500, basemap="HYBRID")
+        if st.session_state['roi']:
+            m.centerObject(st.session_state['roi'], 12)
+            m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': 'yellow'}, 'ROI')
+        m.to_streamlit()
 
+# ----------------------------------------------------
+# ANALYSIS RESULT VIEW (Active after "Run Analysis")
+# ----------------------------------------------------
 else:
     roi = st.session_state['roi']
     mode = st.session_state['mode']
@@ -461,19 +480,18 @@ else:
             
             def get_water(year):
                 # Filter Dry Season (Jan-April)
-                col = ee.ImageCollection('COPERNICUS/S2_SR') \
-                    .filterBounds(roi) \
-                    .filterDate(f'{year}-01-01', f'{year}-04-30') \
-                    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
-                    # --- FIX: USE SCL BAND INSTEAD OF QA60 ---
+                # Use parentheses for multi-line chaining to avoid indentation errors
+                col = (ee.ImageCollection('COPERNICUS/S2_SR')
+                    .filterBounds(roi)
+                    .filterDate(f'{year}-01-01', f'{year}-04-30')
+                    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
                     # SCL Values: 0=No Data, 1=Saturated, 3=Cloud Shadows, 8=Cloud Medium, 9=Cloud High, 10=Cirrus, 11=Snow
-                    # We keep pixels that are NOT 3, 8, 9, 10 (Shadows/Clouds)
                     .map(lambda img: img.updateMask(
                         img.select('SCL').neq(9).And(
                             img.select('SCL').neq(8)).And(
                             img.select('SCL').neq(3)).And(
                             img.select('SCL').neq(10))
-                    ).divide(10000))
+                    ).divide(10000)))
                 
                 if col.size().getInfo() == 0: return None
                 img = col.median().clip(roi)
@@ -481,7 +499,6 @@ else:
                 mndwi = img.normalizedDifference(['B3', 'B11'])
                 return mndwi.gt(0.1).selfMask() 
 
-            # Wrap computations in try-except to catch GEE tile errors
             try:
                 water_hist = get_water(p['hist_year'])
                 water_curr = get_water(p['curr_year'])
@@ -493,7 +510,6 @@ else:
                     encroachment = water_hist.unmask(0).And(water_curr.unmask(0).Not()).selfMask()
                     image_to_export = encroachment
                     
-                    # Added 'min'/'max' to prevent visualization errors on binary masks
                     m.addLayer(water_hist, {'palette': ['blue'], 'min':0, 'max':1}, f'Water {p["hist_year"]}')
                     m.addLayer(water_curr, {'palette': ['cyan'], 'min':0, 'max':1}, f'Water {p["curr_year"]}')
                     m.addLayer(encroachment, {'palette': ['red'], 'min':0, 'max':1}, '⚠️ Encroachment')
