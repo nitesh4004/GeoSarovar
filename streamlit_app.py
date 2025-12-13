@@ -381,9 +381,8 @@ st.markdown(f"""
 if not st.session_state['calculated']:
     st.info("👈 Please select a module and a location in the sidebar to begin.")
     
-    # --- FIX 1: INITIAL MAP (Using Built-in Esri) ---
-    m = geemap.Map(height=500)
-    m.add_basemap("Esri.WorldImagery") 
+    # --- FIX 1: INITIAL MAP (Forced Esri Imagery) ---
+    m = geemap.Map(height=500, basemap="Esri.WorldImagery") 
     
     if st.session_state['roi']:
         m.centerObject(st.session_state['roi'], 12)
@@ -397,9 +396,12 @@ else:
     
     col_map, col_res = st.columns([3, 1])
     
-    # --- FIX 2: RESULT MAP (Using Built-in Esri) ---
-    m = geemap.Map(height=700)
-    m.add_basemap("Esri.WorldImagery")
+    # --- FIX 2: RESULT MAP (Forced Esri Imagery) ---
+    m = geemap.Map(height=700, basemap="Esri.WorldImagery")
+    
+    # Optional: Add Google Hybrid overlay if desired (uncomment if needed)
+    # m.add_basemap("HYBRID") 
+    
     m.centerObject(roi, 13)
 
     # ==========================================
@@ -467,11 +469,13 @@ else:
             
             def get_water(year):
                 # Filter Dry Season (Jan-April)
+                # FIX: SELECT BANDS FIRST TO FORCE HOMOGENEITY
                 col = (ee.ImageCollection('COPERNICUS/S2_SR')
                     .filterBounds(roi)
                     .filterDate(f'{year}-01-01', f'{year}-04-30')
                     .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
-                    # SCL Values: 0=No Data, 1=Saturated, 3=Cloud Shadows, 8=Cloud Medium, 9=Cloud High, 10=Cirrus, 11=Snow
+                    # Crucial Step: Select ONLY the bands we need to drop incompatible bands
+                    .select(['B3', 'B11', 'SCL']) 
                     .map(lambda img: img.updateMask(
                         img.select('SCL').neq(9).And(
                             img.select('SCL').neq(8)).And(
