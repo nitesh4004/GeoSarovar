@@ -23,7 +23,7 @@ import gdown
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(
-    page_title="GeoSarovar - RWH Analytics", 
+    page_title="GeoSarovar - RWH & Encroachment Analytics", 
     page_icon="💧", 
     layout="wide",
     initial_sidebar_state="expanded"
@@ -134,6 +134,13 @@ st.markdown("""
         border-radius: 12px;
         margin-bottom: 15px;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    .alert-card {
+        background: #fff5f5;
+        border: 1px solid #fc8181;
+        padding: 15px;
+        border-radius: 12px;
+        margin-bottom: 15px;
     }
     .card-label {
         font-family: 'Rajdhani', sans-serif;
@@ -307,26 +314,19 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
 # --- ADMIN DATA LOADER (FIXED WITH GDOWN) ---
 @st.cache_data(show_spinner=False)
 def load_admin_data(url, is_gdrive=False):
-    """
-    Downloads and reads shapefile. 
-    Uses gdown for Google Drive links to handle permissions/large files.
-    """
     try:
         temp_dir = tempfile.mkdtemp()
         zip_path = os.path.join(temp_dir, "data.zip")
         
         if is_gdrive:
-            # Gdown handles drive links much better than requests
             gdown.download(url, zip_path, quiet=True, fuzzy=True)
         else:
-            # Standard request for direct links (Github)
             response = requests.get(url, stream=True)
             if response.status_code != 200: return None
             with open(zip_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
         
-        # Extract and Find Shapefile
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir)
             
@@ -335,19 +335,16 @@ def load_admin_data(url, is_gdrive=False):
                 if file.endswith(".shp") or file.endswith(".geojson"):
                     gdf = gpd.read_file(os.path.join(root, file))
                     
-                    # Standardization of Column Names
                     col_map = {
                         'STATE_UT': 'STATE', 'State': 'STATE',
                         'Name': 'District', 'Sub_dist': 'Subdistrict'
                     }
                     gdf.rename(columns=col_map, inplace=True)
                     
-                    # Convert Text to String to avoid object errors
                     for col in ['District', 'STATE', 'Subdistrict']:
                         if col in gdf.columns:
                             gdf[col] = gdf[col].astype(str).str.strip()
 
-                    # Ensure EPSG:4326 for Earth Engine
                     if gdf.crs is None:
                         gdf.set_crs(epsg=4326, inplace=True)
                     elif gdf.crs != "EPSG:4326":
@@ -359,11 +356,8 @@ def load_admin_data(url, is_gdrive=False):
         return None
 
 def geopandas_to_ee(gdf_row):
-    """Converts a single GeoPandas row to Earth Engine Geometry"""
     try:
-        # Get GeoJSON geometry from the row
         gjson = json.loads(gdf_row.geometry.to_json())
-        # Extract coordinates and type
         if 'features' in gjson:
             geom_data = gjson['features'][0]['geometry']
         else:
@@ -375,7 +369,6 @@ def geopandas_to_ee(gdf_row):
 
 # --- 5. SIDEBAR (CONTROL PANEL) ---
 with st.sidebar:
-    # LOGO DISPLAY
     st.image("https://raw.githubusercontent.com/nitesh4004/GeoSarovar/main/geosarovar.png", use_container_width=True)
     
     st.markdown("""
@@ -387,7 +380,6 @@ with st.sidebar:
     with st.container():
         st.markdown("### 1. Site Selection (ROI)")
         
-        # REORDERED OPTIONS HERE as requested
         roi_method = st.radio(
             "Selection Mode", 
             ["Upload KML", "Select Admin Boundary", "Point & Buffer", "Manual Coordinates"], 
@@ -396,11 +388,9 @@ with st.sidebar:
         
         new_roi = None
 
-        # --- OPTION 1: ADMIN BOUNDARY (Uses GDOWN for Drive Links) ---
         if roi_method == "Select Admin Boundary":
             admin_level = st.selectbox("Granularity", ["Districts", "Subdistricts", "States"])
             
-            # URL Mapping
             data_url = None
             is_drive = False
             
@@ -419,7 +409,6 @@ with st.sidebar:
                     gdf = load_admin_data(data_url, is_drive)
                 
                 if gdf is not None:
-                    # Filter Logic
                     final_selection = gdf
                     
                     if 'STATE' in gdf.columns:
@@ -437,9 +426,7 @@ with st.sidebar:
                                 sel_sub = st.selectbox("Subdistrict", subs)
                                 final_selection = final_selection[final_selection['Subdistrict'] == sel_sub]
                     
-                    # Convert Result to EE
                     if not final_selection.empty:
-                        # Take the first match
                         row = final_selection.iloc[[0]] 
                         st.info(f"Selected: {len(final_selection)} Feature(s)")
                         new_roi = geopandas_to_ee(row)
@@ -492,6 +479,20 @@ with st.sidebar:
     start = c1.date_input("From", datetime.now()-timedelta(365*5)) # 5 Years default
     end = c2.date_input("To", datetime.now())
 
+    # --- NEW FEATURE: ENCROACHMENT CHECK ---
+    st.markdown("---")
+    st.markdown("### 4. Encroachment Analysis")
+    run_encroachment = st.checkbox("Detect Water Body Loss?")
+    
+    enc_hist_year = 2016
+    enc_curr_year = 2024
+    
+    if run_encroachment:
+        st.caption("Compare Water Extent:")
+        ec1, ec2 = st.columns(2)
+        enc_hist_year = ec1.number_input("History Year", 2016, 2023, 2016)
+        enc_curr_year = ec2.number_input("Current Year", 2017, 2025, 2024)
+
     st.markdown("###")
     if st.button("RUN HYDRO SCAN 💧"):
         if st.session_state['roi']:
@@ -502,17 +503,17 @@ with st.sidebar:
                 'w_rain': w_rain/100.0,
                 'w_slope': w_slope/100.0,
                 'w_lulc': w_lulc/100.0,
-                'w_soil': w_soil/100.0
+                'w_soil': w_soil/100.0,
+                'run_encroachment': run_encroachment,
+                'enc_hist': enc_hist_year,
+                'enc_curr': enc_curr_year
             })
         else:
             st.error("❌ Error: Region of Interest (ROI) missing.")
             
-    # --- ADDED: 3 Lines about the Webapp HERE in Sidebar ---
     st.markdown("""
     <div style="margin-top: 20px; color: #5c6b7f; font-size: 0.85rem; line-height: 1.4; border-top: 1px solid #d1d9e6; padding-top: 15px;">
-    <strong>GeoSarovar</strong> is an advanced geospatial analytics platform designed to identify optimal rainwater harvesting sites using satellite intelligence. 
-    By integrating topography, land use, soil data, and rainfall patterns, it generates precise suitability models for sustainable water management. 
-    Empowering planners and communities with data-driven insights to secure water resources for the future.
+    <strong>GeoSarovar</strong> is an advanced geospatial analytics platform designed to identify optimal rainwater harvesting sites and detect illegal encroachment on water bodies using satellite intelligence. 
     </div>
     """, unsafe_allow_html=True)
 
@@ -521,7 +522,7 @@ st.markdown("""
 <div class="hud-header">
     <div>
         <div class="hud-title">GeoSarovar</div>
-        <div style="color:#5c6b7f; font-size:0.9rem; margin-top:5px; font-weight:600;">ADVANCED RAINWATER HARVESTING SUITABILITY SYSTEM</div>
+        <div style="color:#5c6b7f; font-size:0.9rem; margin-top:5px; font-weight:600;">ADVANCED RAINWATER HARVESTING & ENCROACHMENT SYSTEM</div>
     </div>
     <div style="text-align:right;">
         <span class="hud-badge">LIVE SATELLITE FEED</span>
@@ -535,7 +536,7 @@ if not st.session_state['calculated']:
     <div class="glass-card" style="text-align:center; padding:50px;">
         <h2 style="color:#00204a;">🌊 AWAITING INPUT</h2>
         <p style="color:#5c6b7f; margin-bottom:20px; font-size:1.1rem;">
-            Welcome to GeoSarovar. Please configure your Area of Interest and MCDA weights in the sidebar to generate a suitability model.
+            Welcome to GeoSarovar. Please configure your Area of Interest, MCDA weights, and Encroachment Settings in the sidebar to generate the analysis.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -551,17 +552,19 @@ else:
     
     col_map, col_res = st.columns([3, 1])
     
-    # --- FIXED: Use default 'HYBRID' then add Esri manually to avoid KeyErrors ---
-    m = geemap.Map(height=700, basemap="HYBRID") # Initial Safe Basemap
+    m = geemap.Map(height=700, basemap="HYBRID") 
     
-    # Manually add Esri World Imagery (High Res)
     esri_url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
     m.add_tile_layer(url=esri_url, name="Esri World Imagery", attribution="Esri")
     
     m.centerObject(roi, 13)
 
     with st.spinner("🌧️ Processing Hydro-Geospatial Data..."):
-        # 1. RAINFALL (CHIRPS)
+        # ----------------------------------------------------
+        # 1. RAINWATER HARVESTING (RWH) ANALYSIS
+        # ----------------------------------------------------
+        
+        # RAINFALL (CHIRPS)
         rain_dataset = ee.ImageCollection("UCSB-CHG/CHIRPS/PENTAD") \
             .filterDate(p['start'], p['end']) \
             .select('precipitation')
@@ -575,35 +578,33 @@ else:
             rain_norm = ee.Image(0.5).clip(roi)
             rain_mean = rain_norm
 
-        # 2. SLOPE (NASA DEM)
+        # SLOPE (NASA DEM)
         dem = ee.Image("NASA/NASADEM_HGT/001").select('elevation')
         slope = ee.Terrain.slope(dem).clip(roi)
-        # 0-5 deg is best. Invert: 0->1, 30->0
         slope_norm = slope.clamp(0, 30).unitScale(0, 30)
         slope_score = ee.Image(1).subtract(slope_norm) 
 
-        # 3. LULC (ESA WorldCover)
+        # LULC (ESA WorldCover)
         lulc = ee.Image("ESA/WorldCover/v100/2020").select('Map').clip(roi)
-        # High score: Bare(60), Grass(30), Shrub(20). Low score: Built(50), Water(80)
         from_list = [10, 20, 30, 40, 50, 60, 80, 90, 95, 100]
         to_list   = [0.6, 0.8, 0.8, 0.7, 0.0, 1.0, 0.0, 0.1, 0.1, 0.1]
         lulc_score = lulc.remap(from_list, to_list).rename('lulc_score')
 
-        # 4. SOIL (OpenLandMap)
+        # SOIL (OpenLandMap)
         try:
             soil_clay = ee.Image("OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02").select('b0').mean().clip(roi)
             soil_score = soil_clay.clamp(0, 50).unitScale(0, 50)
         except:
             soil_score = ee.Image(0.5).clip(roi)
 
-        # 5. WEIGHTED OVERLAY
+        # WEIGHTED OVERLAY
         suitability = (rain_norm.multiply(p['w_rain'])) \
             .add(slope_score.multiply(p['w_slope'])) \
             .add(lulc_score.multiply(p['w_lulc'])) \
             .add(soil_score.multiply(p['w_soil'])) \
             .rename('score') 
 
-        # VISUALIZATION
+        # VISUALIZATION (RWH)
         vis_params = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
         
         m.addLayer(rain_mean, {'min': 0, 'max': 200, 'palette': ['blue', 'cyan']}, 'Rainfall (Raw)', False)
@@ -617,35 +618,102 @@ else:
             "Low Potential": "fdae61",        
             "Not Suitable": "d7191c"              
         }
-        m.add_legend(title="RWH Suitability", legend_dict=legend_dict)
+        
+        # ----------------------------------------------------
+        # 2. ENCROACHMENT DETECTION MODULE
+        # ----------------------------------------------------
+        encroached_area_ha = 0
+        
+        if p['run_encroachment']:
+            # Cloud Mask Function for Sentinel-2
+            def mask_s2_clouds(image):
+                qa = image.select('QA60')
+                cloud_bit_mask = 1 << 10
+                cirrus_bit_mask = 1 << 11
+                mask = qa.bitwiseAnd(cloud_bit_mask).eq(0).And(qa.bitwiseAnd(cirrus_bit_mask).eq(0))
+                return image.updateMask(mask).divide(10000)
 
-        # --- 6. FIX: FIND & MARK BEST SITE (Using Folium Directly) ---
+            # Define Dry Season (Jan-April) to avoid flood confusion
+            start_date_hist = f"{p['enc_hist']}-01-01"
+            end_date_hist = f"{p['enc_hist']}-04-30"
+            start_date_curr = f"{p['enc_curr']}-01-01"
+            end_date_curr = f"{p['enc_curr']}-04-30"
+
+            # Historical Collection
+            hist_col = ee.ImageCollection('COPERNICUS/S2_SR') \
+                .filterBounds(roi) \
+                .filterDate(start_date_hist, end_date_hist) \
+                .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
+                .map(mask_s2_clouds)
+            
+            # Current Collection
+            curr_col = ee.ImageCollection('COPERNICUS/S2_SR') \
+                .filterBounds(roi) \
+                .filterDate(start_date_curr, end_date_curr) \
+                .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
+                .map(mask_s2_clouds)
+
+            if hist_col.size().getInfo() > 0 and curr_col.size().getInfo() > 0:
+                hist_img = hist_col.median().clip(roi)
+                curr_img = curr_col.median().clip(roi)
+
+                # MNDWI Calculation: (Green - SWIR) / (Green + SWIR) -> B3, B11
+                mndwi_hist = hist_img.normalizedDifference(['B3', 'B11'])
+                mndwi_curr = curr_img.normalizedDifference(['B3', 'B11'])
+                
+                # Water Threshold (Usually > 0.1 for Sentinel 2)
+                water_thresh = 0.1
+                water_hist = mndwi_hist.gt(water_thresh)
+                water_curr = mndwi_curr.gt(water_thresh)
+
+                # Logic: Was Water AND Is Now NOT Water
+                encroachment = water_hist.And(water_curr.Not()).selfMask()
+                
+                # Add Layers
+                m.addLayer(water_hist.selfMask(), {'palette': ['blue']}, f'Water Extent ({p["enc_hist"]})')
+                m.addLayer(water_curr.selfMask(), {'palette': ['cyan']}, f'Water Extent ({p["enc_curr"]})')
+                m.addLayer(encroachment, {'palette': ['ff0000']}, '⚠️ Detected Encroachment')
+                
+                # Update Legend
+                legend_dict["Historical Water"] = "0000ff"
+                legend_dict["Current Water"] = "00ffff"
+                legend_dict["Encroachment (Critical)"] = "ff0000"
+                
+                # Calculate Area
+                enc_pixel_area = encroachment.multiply(ee.Image.pixelArea())
+                enc_stats = enc_pixel_area.reduceRegion(
+                    reducer=ee.Reducer.sum(),
+                    geometry=roi,
+                    scale=10,
+                    maxPixels=1e9,
+                    bestEffort=True
+                )
+                enc_area_sqm = enc_stats.get('nd').getInfo() if 'nd' in enc_stats.keys() else 0
+                encroached_area_ha = round(enc_area_sqm / 10000, 2)
+                
+            else:
+                st.warning("⚠️ Insufficient satellite data for encroachment analysis in selected years.")
+
+        # Add Legend Finally
+        m.add_legend(title="Analysis Layer", legend_dict=legend_dict)
+
+        # ----------------------------------------------------
+        # 3. BEST SITE FINDER
+        # ----------------------------------------------------
         try:
-            # Calculate max pixel value
             max_val = suitability.reduceRegion(
-                reducer=ee.Reducer.max(),
-                geometry=roi,
-                scale=30,
-                maxPixels=1e9,
-                bestEffort=True
+                reducer=ee.Reducer.max(), geometry=roi, scale=30, maxPixels=1e9, bestEffort=True
             ).get('score')
             
-            # Mask and find centroid
             max_pixels = suitability.eq(ee.Number(max_val))
             best_site_geom = max_pixels.reduceToVectors(
-                geometry=roi, 
-                scale=30, 
-                geometryType='centroid', 
-                labelProperty='label', 
-                maxPixels=1e9,
-                bestEffort=True
+                geometry=roi, scale=30, geometryType='centroid', labelProperty='label', maxPixels=1e9, bestEffort=True
             )
             
             if best_site_geom.size().getInfo() > 0:
                 best_point = best_site_geom.first().geometry().coordinates().getInfo()
                 best_lat, best_lon = best_point[1], best_point[0]
                 
-                # REPLACED problematic add_marker with direct Folium Marker
                 icon = folium.Icon(color='green', icon='star')
                 marker = folium.Marker(
                     location=[best_lat, best_lon], 
@@ -653,12 +721,14 @@ else:
                     tooltip="Highest Suitability Score",
                     icon=icon
                 )
-                marker.add_to(m) # Add directly to map instance
-                
+                marker.add_to(m) 
                 st.toast("Best Site Located!", icon="⭐")
         except Exception as e:
             st.warning(f"Note: Auto-site finder skipped ({e})")
 
+        # ----------------------------------------------------
+        # 4. RESULTS DASHBOARD
+        # ----------------------------------------------------
         with col_res:
             st.markdown('<div class="glass-card">', unsafe_allow_html=True)
             st.markdown('<div class="card-label">📊 AREA BREAKDOWN</div>', unsafe_allow_html=True)
@@ -676,6 +746,17 @@ else:
                     name_map = {"Class 1": "Unsuitable", "Class 2": "Low", "Class 3": "Moderate", "Class 4": "Good", "Class 5": "Excellent"}
                     df_area['Class'] = df_area['Class'].map(name_map).fillna(df_area['Class'])
                     st.dataframe(df_area, hide_index=True, use_container_width=True)
+
+            # --- ENCROACHMENT STATS CARD ---
+            if p['run_encroachment'] and encroached_area_ha > 0:
+                st.markdown('<div class="alert-card">', unsafe_allow_html=True)
+                st.markdown(f"""
+                    <div style="font-weight:700; color:#c53030; margin-bottom:5px;">⚠️ ENCROACHMENT ALERT</div>
+                    <div style="font-size:0.9rem; color:#742a2a;">Detected Water Loss:</div>
+                    <div style="font-size:1.8rem; font-weight:bold; color:#9b2c2c;">{encroached_area_ha} ha</div>
+                    <div style="font-size:0.8rem; color:#742a2a;">Between {p['enc_hist']} & {p['enc_curr']}</div>
+                """, unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown("---")
             st.markdown('<div class="card-label">📥 EXPORT DATA</div>', unsafe_allow_html=True)
@@ -702,4 +783,3 @@ else:
 
     with col_map:
         m.to_streamlit()
-
