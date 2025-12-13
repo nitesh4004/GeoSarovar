@@ -267,10 +267,15 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 2. Location (ROI)")
     
-    roi_method = st.radio("Selection Mode", ["Select Admin Boundary", "Upload KML", "Point & Buffer"], label_visibility="collapsed")
+    # REORDERED: Upload KML is now first
+    roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
     new_roi = None
 
-    if roi_method == "Select Admin Boundary":
+    if roi_method == "Upload KML":
+        kml = st.file_uploader("Upload KML", type=['kml'])
+        if kml: new_roi = parse_kml(kml.read())
+
+    elif roi_method == "Select Admin Boundary":
         admin_level = st.selectbox("Granularity", ["Districts", "Subdistricts", "States"])
         data_url = None
         is_drive = False
@@ -307,10 +312,6 @@ with st.sidebar:
                 if not gdf.empty:
                     new_roi = geopandas_to_ee(gdf.iloc[[0]])
                     st.info(f"Selected: {len(gdf)} Feature")
-
-    elif roi_method == "Upload KML":
-        kml = st.file_uploader("Upload KML", type=['kml'])
-        if kml: new_roi = parse_kml(kml.read())
         
     elif roi_method == "Point & Buffer":
         c1, c2 = st.columns(2)
