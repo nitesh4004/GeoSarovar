@@ -389,8 +389,8 @@ st.markdown(f"""
 if not st.session_state['calculated']:
     st.info("👈 Please select a module and a location in the sidebar to begin.")
     
-    # --- INITIAL MAP ---
-    m = geemap.Map(height=500, basemap="HYBRID") 
+    # --- FIXED: Use explicit 'Esri.WorldImagery' instead of 'HYBRID' ---
+    m = geemap.Map(height=500, basemap="Esri.WorldImagery") 
     
     if st.session_state['roi']:
         m.centerObject(st.session_state['roi'], 12)
@@ -404,8 +404,8 @@ else:
     
     col_map, col_res = st.columns([3, 1])
     
-    # --- RESULT MAP ---
-    m = geemap.Map(height=700, basemap="HYBRID")
+    # --- FIXED: Result map also uses Esri.WorldImagery ---
+    m = geemap.Map(height=700, basemap="Esri.WorldImagery")
     m.centerObject(roi, 13)
 
     # ==========================================
