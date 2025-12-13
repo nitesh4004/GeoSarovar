@@ -542,14 +542,19 @@ else:
                     m.addLayer(encroachment, {'palette': 'red'}, '🔴 Encroachment (Loss)')
                     m.addLayer(new_water, {'palette': 'blue'}, '🔵 New Water (Gain)')
                     
-                    # 5. Stats
+                    # 5. Stats - ROBUST FIX FOR 'Dictionary key' ERROR
+                    # Instead of assuming key 'nd', we take the first value computed
                     pixel_area = encroachment.multiply(ee.Image.pixelArea())
                     stats_loss = pixel_area.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9, bestEffort=True)
-                    loss_ha = round((stats_loss.get('nd').getInfo() or 0) / 10000, 2)
+                    # Safe retrieval
+                    val_loss = stats_loss.values().get(0).getInfo()
+                    loss_ha = round((val_loss or 0) / 10000, 2)
                     
                     pixel_area_gain = new_water.multiply(ee.Image.pixelArea())
                     stats_gain = pixel_area_gain.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9, bestEffort=True)
-                    gain_ha = round((stats_gain.get('nd').getInfo() or 0) / 10000, 2)
+                    # Safe retrieval
+                    val_gain = stats_gain.values().get(0).getInfo()
+                    gain_ha = round((val_gain or 0) / 10000, 2)
 
                     with col_res:
                         st.markdown('<div class="alert-card">', unsafe_allow_html=True)
