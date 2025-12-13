@@ -388,14 +388,25 @@ st.markdown(f"""
 
 # Helper for Safe Map Loading
 def get_safe_map(height=500):
-    # Initialize basic map (OSM default, never fails)
-    m = geemap.Map(height=height) 
-    # Force Add Esri Satellite Layer manually (Bypassing geemap internal dictionary)
+    # CRITICAL FIX: Do NOT set basemap in constructor to avoid KeyErrors
+    m = geemap.Map(height=height, basemap=None) 
+    
+    # Manually add OpenStreetMap as default
+    m.add_tile_layer(
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        name="OpenStreetMap",
+        attribution="OpenStreetMap"
+    )
+    
+    # Manually add Esri Satellite (This fixes the 'white map' issue)
     m.add_tile_layer(
         url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         name="Esri Satellite",
         attribution="Esri"
     )
+    
+    # Add Control to switch between them
+    m.add_layer_control()
     return m
 
 if not st.session_state['calculated']:
