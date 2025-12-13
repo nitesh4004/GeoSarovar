@@ -476,17 +476,6 @@ else:
                 if not df.empty:
                     df['Class'] = df['Class'].map(name_map).fillna(df['Class'])
                     st.dataframe(df, hide_index=True, use_container_width=True)
-                    
-                    # --- ADDED FEATURE: CSV DOWNLOAD ---
-                    csv = df.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="💾 Download Stats (CSV)",
-                        data=csv,
-                        file_name='GeoSarovar_Area_Stats.csv',
-                        mime='text/csv',
-                        use_container_width=True
-                    )
-                    # -----------------------------------
 
     # ==========================================
     # LOGIC B: ENCROACHMENT DETECTION (SENTINEL-1)
@@ -650,3 +639,4 @@ else:
 
     with col_map:
         m.to_streamlit()
+
