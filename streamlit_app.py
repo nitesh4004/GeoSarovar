@@ -381,8 +381,8 @@ st.markdown(f"""
 if not st.session_state['calculated']:
     st.info("👈 Please select a module and a location in the sidebar to begin.")
     
-    # --- FIX 1: INITIAL MAP (Forced Esri Imagery) ---
-    m = geemap.Map(height=500, basemap="Esri.WorldImagery") 
+    # --- FIX 1: INITIAL MAP (Google Hybrid - Crash Proof) ---
+    m = geemap.Map(height=500, basemap="HYBRID") 
     
     if st.session_state['roi']:
         m.centerObject(st.session_state['roi'], 12)
@@ -396,12 +396,8 @@ else:
     
     col_map, col_res = st.columns([3, 1])
     
-    # --- FIX 2: RESULT MAP (Forced Esri Imagery) ---
-    m = geemap.Map(height=700, basemap="Esri.WorldImagery")
-    
-    # Optional: Add Google Hybrid overlay if desired (uncomment if needed)
-    # m.add_basemap("HYBRID") 
-    
+    # --- FIX 2: RESULT MAP (Google Hybrid - Crash Proof) ---
+    m = geemap.Map(height=700, basemap="HYBRID")
     m.centerObject(roi, 13)
 
     # ==========================================
