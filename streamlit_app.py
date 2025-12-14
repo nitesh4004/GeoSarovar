@@ -372,7 +372,7 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
 with st.sidebar:
     st.image("https://raw.githubusercontent.com/nitesh4004/GeoSarovar/main/geosarovar.png", use_container_width=True)
     st.markdown("### 1. Select Module")
-    app_mode = st.radio("Choose Functionality:", ["📍 RWH Site Suitability", "⚠️ Encroachment (S1 SAR)", "🌊 Flood Extent Mapping"], label_visibility="collapsed")
+    app_mode = st.radio("Choose Functionality:", ["📍 RWH Site Suitability", "⚠️ Encroachment (S1 SAR)", "Flood Extent Mapping"], label_visibility="collapsed")
     st.markdown("---")
     st.markdown("### 2. Location (ROI)")
     roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
@@ -764,3 +764,4 @@ else:
 
     with col_map:
         m.to_streamlit()
+
