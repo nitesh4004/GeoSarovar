@@ -230,7 +230,7 @@ def calculate_area_by_class(image, region, scale):
         df["Area (ha)"] = df["Area (ha)"].round(2)
     return df
 
-# --- ADVANCED STATIC MAP GENERATOR (FIXED) ---
+# --- ADVANCED STATIC MAP GENERATOR (WITH BACKGROUND IMAGERY) ---
 def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
     try:
         # 1. Geometry Prep
@@ -261,14 +261,26 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         if fig_height > 20: fig_height = 20
         if fig_height < 4: fig_height = 4
 
-        # 2. Prepare Image
+        # 2. Prepare Background Imagery (Workaround for Google Maps Tiles)
+        # We fetch a Sentinel-2 Cloud-Free Mosaic to act as the background
+        s2_background = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")\
+            .filterBounds(roi)\
+            .filterDate('2023-01-01', '2023-12-31')\
+            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))\
+            .median()\
+            .visualize(min=0, max=3000, bands=['B4', 'B3', 'B2'])
+        
+        # 3. Prepare Analysis Layer
         if 'palette' in vis_params or 'min' in vis_params:
-            ready_img = image.visualize(**vis_params)
+            analysis_vis = image.visualize(**vis_params)
         else:
-            ready_img = image 
+            analysis_vis = image 
             
-        # 3. Request Thumbnail
-        thumb_url = ready_img.getThumbURL({
+        # 4. Blend: Background -> Analysis
+        final_image = s2_background.blend(analysis_vis)
+
+        # 5. Request Thumbnail
+        thumb_url = final_image.getThumbURL({
             'region': roi_json, 
             'dimensions': 1000, 
             'format': 'png', 
@@ -288,7 +300,7 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
 
         img_pil = Image.open(BytesIO(response.content))
         
-        # 4. Plotting
+        # 6. Plotting
         fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300, facecolor='#ffffff')
         ax.set_facecolor('#ffffff')
         extent = [min_lon, max_lon, min_lat, max_lat]
@@ -296,15 +308,15 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#00204a')
         
         ax.tick_params(colors='black', labelcolor='black', labelsize=10)
-        ax.grid(color='black', linestyle='--', linewidth=0.5, alpha=0.1)
+        ax.grid(color='white', linestyle='--', linewidth=0.5, alpha=0.3) # Lighter grid for imagery
         for spine in ax.spines.values():
             spine.set_edgecolor('black')
             spine.set_linewidth(1)
         
         ax.annotate('N', xy=(0.97, 0.95), xytext=(0.97, 0.88),
                     xycoords='axes fraction', textcoords='axes fraction',
-                    arrowprops=dict(facecolor='black', edgecolor='black', width=4, headwidth=12, headlength=10),
-                    ha='center', va='center', fontsize=16, fontweight='bold', color='black')
+                    arrowprops=dict(facecolor='white', edgecolor='black', width=4, headwidth=12, headlength=10),
+                    ha='center', va='center', fontsize=16, fontweight='bold', color='white')
 
         try:
             center_lat = (min_lat + max_lat) / 2
@@ -321,7 +333,7 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
             start_y = min_lat + pad_y
             bar_height = height_deg * 0.015
             
-            rect = mpatches.Rectangle((start_x, start_y), nice_len_deg, bar_height, linewidth=1, edgecolor='black', facecolor='black')
+            rect = mpatches.Rectangle((start_x, start_y), nice_len_deg, bar_height, linewidth=1, edgecolor='black', facecolor='white')
             ax.add_patch(rect)
             label = f"{int(nice_len_met/1000)} km" if nice_len_met >= 1000 else f"{int(nice_len_met)} m"
             ax.text(start_x + nice_len_deg/2, start_y + bar_height + (height_deg*0.01), label, color='black', ha='center', va='bottom', fontsize=12, fontweight='bold')
@@ -717,26 +729,22 @@ else:
         if st.button("Generate Map Image"):
             with st.spinner("Rendering..."):
                 img_rep = image_to_export if image_to_export else ee.Image(0)
-                vis_rep = {'palette': ['blue']} 
-                is_categorical = False
-                class_names = None
-                cmap = None
-
-                if mode == "📍 RWH Site Suitability": 
-                    # Added # for Matplotlib compatibility
-                    vis_rep = {'min': 0, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
-                    cmap = vis_rep['palette']
-                    is_categorical = False
-                elif mode == "⚠️ Encroachment (S1 SAR)": 
-                    # Named colors are fine
-                    vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
-                    is_categorical = True
-                    class_names = ['Stable Water', 'Encroachment', 'New Water']
-                elif mode == "🌊 Flood Extent Mapping":
-                    # Added # for Matplotlib compatibility
+                # FIX: Add # to color codes for Matplotlib
+                if mode == "🌊 Flood Extent Mapping":
                     vis_rep = {'min': 0, 'max': 1, 'palette': ['#0000FF']}
                     is_categorical = True
                     class_names = ['Flood Extent']
+                    cmap = None
+                elif mode == "⚠️ Encroachment (S1 SAR)": 
+                    vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']} # These are named colors, OK without #
+                    is_categorical = True
+                    class_names = ['Stable Water', 'Encroachment', 'New Water']
+                    cmap = None
+                elif mode == "📍 RWH Site Suitability": 
+                    vis_rep = {'min': 0, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
+                    cmap = vis_rep['palette']
+                    is_categorical = False
+                    class_names = None
                 
                 buf = generate_static_map_display(img_rep, roi, vis_rep, report_title, cmap_colors=cmap, is_categorical=is_categorical, class_names=class_names)
                 if buf:
