@@ -226,7 +226,7 @@ def calculate_area_by_class(image, region, scale):
         df["Area (ha)"] = df["Area (ha)"].round(2)
     return df
 
-# --- ADVANCED STATIC MAP GENERATOR (FROM SpectralNi30) ---
+# --- ADVANCED STATIC MAP GENERATOR ---
 def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
     try:
         # 1. CALCULATE GEOMETRY & ASPECT RATIO
@@ -275,7 +275,7 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
 
         img_pil = Image.open(BytesIO(response.content))
         
-        # 3. PLOT WITH WHITE BACKGROUND AND BLACK TEXT
+        # 3. PLOT WITH WHITE BACKGROUND
         fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300, facecolor='#ffffff')
         ax.set_facecolor('#ffffff')
         
@@ -283,23 +283,23 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         
         im = ax.imshow(img_pil, extent=extent, aspect='auto')
         
-        # Dark Blue Title
+        # Title
         ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#00204a')
         
-        # Styling ticks for White background (Black text)
+        # Ticks
         ax.tick_params(colors='black', labelcolor='black', labelsize=10)
         ax.grid(color='black', linestyle='--', linewidth=0.5, alpha=0.1)
         for spine in ax.spines.values():
             spine.set_edgecolor('black')
             spine.set_linewidth(1)
         
-        # 4. NORTH ARROW / DIRECTION MARKER
+        # 4. NORTH ARROW
         ax.annotate('N', xy=(0.97, 0.95), xytext=(0.97, 0.88),
                     xycoords='axes fraction', textcoords='axes fraction',
                     arrowprops=dict(facecolor='black', edgecolor='black', width=4, headwidth=12, headlength=10),
                     ha='center', va='center', fontsize=16, fontweight='bold', color='black')
 
-        # 5. SCALE BAR LOGIC
+        # 5. SCALE BAR
         try:
             center_lat = (min_lat + max_lat) / 2
             met_per_deg_lon = 111320 * np.cos(np.radians(center_lat))
@@ -319,20 +319,18 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
             
             bar_height = height_deg * 0.015
             
-            # Black scale bar rectangle
             rect = mpatches.Rectangle((start_x, start_y), nice_len_deg, bar_height, 
                                     linewidth=1, edgecolor='black', facecolor='black')
             ax.add_patch(rect)
             
             label = f"{int(nice_len_met/1000)} km" if nice_len_met >= 1000 else f"{int(nice_len_met)} m"
             
-            # Text label above scale bar (Black)
             ax.text(start_x + nice_len_deg/2, start_y + bar_height + (height_deg*0.01), label, 
                     color='black', ha='center', va='bottom', fontsize=12, fontweight='bold')
         except:
             pass
         
-        # 6. LEGEND LOGIC
+        # 6. LEGEND
         if is_categorical and class_names and 'palette' in vis_params:
             patches = []
             for name, color in zip(class_names, vis_params['palette']):
@@ -466,6 +464,8 @@ with st.sidebar:
         st.markdown("### 3. Comparison Dates")
         st.info("Uses Sentinel-1 Radar (See through clouds).")
         
+        orbit = st.radio("Orbit Pass", ["ASCENDING", "DESCENDING"])
+
         st.markdown("**Initial Period (Baseline)**")
         col1, col2 = st.columns(2)
         d1_start = col1.date_input("Start 1", datetime(2018, 6, 1))
@@ -480,12 +480,15 @@ with st.sidebar:
             'd1_start': d1_start.strftime("%Y-%m-%d"), 
             'd1_end': d1_end.strftime("%Y-%m-%d"),
             'd2_start': d2_start.strftime("%Y-%m-%d"), 
-            'd2_end': d2_end.strftime("%Y-%m-%d")
+            'd2_end': d2_end.strftime("%Y-%m-%d"),
+            'orbit': orbit
         }
     
     elif app_mode == "🌊 Flood Extent Mapping":
         st.markdown("### 3. Flood Event Details")
         st.info("Compares Pre-event vs Post-event Radar data.")
+        
+        orbit = st.radio("Orbit Pass", ["ASCENDING", "DESCENDING"])
         
         st.markdown("**Before Flood (Dry)**")
         col1, col2 = st.columns(2)
@@ -504,7 +507,8 @@ with st.sidebar:
             'pre_end': pre_end.strftime("%Y-%m-%d"),
             'post_start': post_start.strftime("%Y-%m-%d"), 
             'post_end': post_end.strftime("%Y-%m-%d"),
-            'threshold': threshold
+            'threshold': threshold,
+            'orbit': orbit
         }
 
     st.markdown("###")
@@ -529,16 +533,24 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Helper for Safe Map Loading
+# Helper for Safe Map Loading - UPDATED TO FIX BASEMAP
 def get_safe_map(height=500):
-    # Initialize basic map (OSM default, never fails)
-    m = geemap.Map(height=height) 
-    # Force Add Esri Satellite Layer manually (Bypassing geemap internal dictionary)
-    m.add_tile_layer(
-        url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        name="Esri Satellite",
-        attribution="Esri"
-    )
+    # We explicitly set the basemap to Esri.WorldImagery to stop OSM from loading
+    try:
+        m = geemap.Map(height=height, basemap="Esri.WorldImagery")
+    except Exception:
+        # Fallback: If the shortcut fails, we manually add the tile layer
+        m = geemap.Map(height=height)
+        try:
+            m.clear_layers() 
+        except:
+            pass
+        
+        m.add_tile_layer(
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            name="Esri Satellite",
+            attribution="Esri"
+        )
     return m
 
 if not st.session_state['calculated']:
@@ -629,14 +641,14 @@ else:
     elif mode == "⚠️ Encroachment (S1 SAR)":
         with st.spinner("Processing Sentinel-1 SAR Data..."):
             
-            def get_sar_water(start_d, end_d, roi_geom):
+            def get_sar_water(start_d, end_d, roi_geom, orbit_pass):
                 """
-                Fetches Sentinel-1 data, filters speckle, and applies threshold.
-                Water is DARK in SAR (low dB).
+                Fetches Sentinel-1 data filtered by Orbit, filters speckle, and applies threshold.
                 """
                 s1 = ee.ImageCollection('COPERNICUS/S1_GRD')\
                     .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))\
                     .filter(ee.Filter.eq('instrumentMode', 'IW'))\
+                    .filter(ee.Filter.eq('orbitProperties_pass', orbit_pass))\
                     .filterDate(start_d, end_d)\
                     .filterBounds(roi_geom)
                 
@@ -654,9 +666,9 @@ else:
                 return water_mask
 
             try:
-                # 1. Fetch Water Masks
-                water_initial = get_sar_water(p['d1_start'], p['d1_end'], roi)
-                water_final = get_sar_water(p['d2_start'], p['d2_end'], roi)
+                # 1. Fetch Water Masks (Passing the user-selected orbit)
+                water_initial = get_sar_water(p['d1_start'], p['d1_end'], roi, p['orbit'])
+                water_final = get_sar_water(p['d2_start'], p['d2_end'], roi, p['orbit'])
 
                 if water_initial and water_final:
                     # 2. Change Detection Logic
@@ -702,7 +714,7 @@ else:
                         st.markdown(f"### ⚠️ Change Report")
                         st.metric("🔴 Water Loss", f"{loss_ha} Ha", help="Potential Encroachment")
                         st.metric("🔵 Water Gain", f"{gain_ha} Ha", help="Flooding/New Storage")
-                        st.caption("Derived from Sentinel-1 (SAR)")
+                        st.caption(f"Orbit: {p['orbit']} | Pol: VV")
                         st.markdown("</div>", unsafe_allow_html=True)
 
                         # Time-Lapse Generator
@@ -714,6 +726,7 @@ else:
                                     s1_col = ee.ImageCollection('COPERNICUS/S1_GRD')\
                                         .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))\
                                         .filter(ee.Filter.eq('instrumentMode', 'IW'))\
+                                        .filter(ee.Filter.eq('orbitProperties_pass', p['orbit']))\
                                         .filterBounds(roi)\
                                         .filterDate(p['d1_start'], p['d2_end'])\
                                         .select('VV')
@@ -737,7 +750,7 @@ else:
                         st.markdown("</div>", unsafe_allow_html=True)
 
                 else:
-                    st.warning("Insufficient SAR data for selected dates.")
+                    st.warning("Insufficient SAR data for selected dates and orbit.")
                     image_to_export = ee.Image(0)
             except Exception as e:
                 st.error(f"Computation Error: {e}")
@@ -761,10 +774,8 @@ else:
                 after_col = collection.filterDate(p['post_start'], p['post_end'])
 
                 if before_col.size().getInfo() > 0 and after_col.size().getInfo() > 0:
-                    # Orbit Filter (Ascending preferred)
-                    orbit = 'ASCENDING'
-                    if after_col.filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING')).size().getInfo() == 0:
-                        orbit = 'DESCENDING'
+                    # Use User Selected Orbit
+                    orbit = p['orbit']
                     
                     before = before_col.filter(ee.Filter.eq('orbitProperties_pass', orbit)).median().clip(roi)
                     after = after_col.filter(ee.Filter.eq('orbitProperties_pass', orbit)).mosaic().clip(roi)
@@ -818,7 +829,7 @@ else:
                         st.markdown("</div>", unsafe_allow_html=True)
 
                 else:
-                    st.error("No Sentinel-1 images found for the specified dates/region.")
+                    st.error(f"No Sentinel-1 images found for {p['orbit']} orbit in these dates.")
 
             except Exception as e:
                 st.error(f"Error: {e}")
