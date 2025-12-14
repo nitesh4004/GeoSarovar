@@ -233,10 +233,10 @@ def calculate_area_by_class(image, region, scale):
 # --- ADVANCED STATIC MAP GENERATOR (FIXED) ---
 def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
     try:
-        # 1. Geometry Prep - FORCE .getInfo() to avoid Serialization Errors
+        # 1. Geometry Prep
         if isinstance(roi, ee.Geometry):
             try:
-                roi_json = roi.getInfo() # Crucial fix for 'request payload' errors
+                roi_json = roi.getInfo() 
                 roi_bounds = roi.bounds().getInfo()['coordinates'][0]
             except:
                 st.error("Error reading ROI geometry.")
@@ -267,10 +267,10 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         else:
             ready_img = image 
             
-        # 3. Request Thumbnail (Using JSON ROI)
+        # 3. Request Thumbnail
         thumb_url = ready_img.getThumbURL({
             'region': roi_json, 
-            'dimensions': 1000, # Reduced slightly for reliability
+            'dimensions': 1000, 
             'format': 'png', 
             'crs': 'EPSG:4326'
         })
@@ -717,22 +717,26 @@ else:
         if st.button("Generate Map Image"):
             with st.spinner("Rendering..."):
                 img_rep = image_to_export if image_to_export else ee.Image(0)
-                # Fix: Flood Mapping is Binary 0-1, so set min/max explicitly for blue palette to work
-                if mode == "🌊 Flood Extent Mapping":
-                    vis_rep = {'min': 0, 'max': 1, 'palette': ['0000FF']}
-                    is_categorical = True
-                    class_names = ['Flood Extent']
-                    cmap = None
+                vis_rep = {'palette': ['blue']} 
+                is_categorical = False
+                class_names = None
+                cmap = None
+
+                if mode == "📍 RWH Site Suitability": 
+                    # Added # for Matplotlib compatibility
+                    vis_rep = {'min': 0, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
+                    cmap = vis_rep['palette']
+                    is_categorical = False
                 elif mode == "⚠️ Encroachment (S1 SAR)": 
+                    # Named colors are fine
                     vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
                     is_categorical = True
                     class_names = ['Stable Water', 'Encroachment', 'New Water']
-                    cmap = None
-                elif mode == "📍 RWH Site Suitability": 
-                    vis_rep = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
-                    cmap = vis_rep['palette']
-                    is_categorical = False
-                    class_names = None
+                elif mode == "🌊 Flood Extent Mapping":
+                    # Added # for Matplotlib compatibility
+                    vis_rep = {'min': 0, 'max': 1, 'palette': ['#0000FF']}
+                    is_categorical = True
+                    class_names = ['Flood Extent']
                 
                 buf = generate_static_map_display(img_rep, roi, vis_rep, report_title, cmap_colors=cmap, is_categorical=is_categorical, class_names=class_names)
                 if buf:
