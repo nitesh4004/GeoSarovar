@@ -256,7 +256,7 @@ with st.sidebar:
     st.markdown("### 1. Select Module")
     app_mode = st.radio(
         "Choose Functionality:",
-        ["📍 RWH Site Suitability", "⚠️ Encroachment (S1 SAR)"],
+        ["📍 RWH Site Suitability", "⚠️ Encroachment (S1 SAR)", "🌊 Flood Extent Mapping"],
         label_visibility="collapsed"
     )
 
@@ -363,6 +363,30 @@ with st.sidebar:
             'd2_start': d2_start.strftime("%Y-%m-%d"), 
             'd2_end': d2_end.strftime("%Y-%m-%d")
         }
+    
+    elif app_mode == "🌊 Flood Extent Mapping":
+        st.markdown("### 3. Flood Event Details")
+        st.info("Compares Pre-event vs Post-event Radar data.")
+        
+        st.markdown("**Before Flood (Dry)**")
+        col1, col2 = st.columns(2)
+        pre_start = col1.date_input("Pre Start", datetime(2023, 4, 1))
+        pre_end = col2.date_input("Pre End", datetime(2023, 6, 1))
+        
+        st.markdown("**After Flood (Wet)**")
+        col3, col4 = st.columns(2)
+        post_start = col3.date_input("Post Start", datetime(2023, 9, 29))
+        post_end = col4.date_input("Post End", datetime(2023, 10, 15))
+        
+        threshold = st.slider("Difference Threshold", 1.0, 1.5, 1.25, 0.05)
+        
+        params = {
+            'pre_start': pre_start.strftime("%Y-%m-%d"), 
+            'pre_end': pre_end.strftime("%Y-%m-%d"),
+            'post_start': post_start.strftime("%Y-%m-%d"), 
+            'post_end': post_end.strftime("%Y-%m-%d"),
+            'threshold': threshold
+        }
 
     st.markdown("###")
     if st.button("RUN ANALYSIS 🚀"):
@@ -419,6 +443,8 @@ else:
     # --- FIXED RESULT MAP ---
     m = get_safe_map(700)
     m.centerObject(roi, 13)
+    
+    image_to_export = None # Placeholder for export
 
     # ==========================================
     # LOGIC A: RWH SITE SUITABILITY
@@ -451,6 +477,7 @@ else:
             vis = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
             m.addLayer(suitability, vis, 'Suitability Index')
             m.add_colorbar(vis, label="RWH Potential")
+            image_to_export = suitability
 
             # Best Site Finder
             try:
@@ -512,8 +539,6 @@ else:
                 water_initial = get_sar_water(p['d1_start'], p['d1_end'], roi)
                 water_final = get_sar_water(p['d2_start'], p['d2_end'], roi)
 
-                image_to_export = None
-
                 if water_initial and water_final:
                     # 2. Change Detection Logic
                     # Initial(1) AND Final(0) -> LOSS (Encroachment)
@@ -542,17 +567,14 @@ else:
                     m.addLayer(encroachment, {'palette': 'red'}, '🔴 Encroachment (Loss)')
                     m.addLayer(new_water, {'palette': 'blue'}, '🔵 New Water (Gain)')
                     
-                    # 5. Stats - ROBUST FIX FOR 'Dictionary key' ERROR
-                    # Instead of assuming key 'nd', we take the first value computed
+                    # 5. Stats
                     pixel_area = encroachment.multiply(ee.Image.pixelArea())
                     stats_loss = pixel_area.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9, bestEffort=True)
-                    # Safe retrieval
                     val_loss = stats_loss.values().get(0).getInfo()
                     loss_ha = round((val_loss or 0) / 10000, 2)
                     
                     pixel_area_gain = new_water.multiply(ee.Image.pixelArea())
                     stats_gain = pixel_area_gain.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9, bestEffort=True)
-                    # Safe retrieval
                     val_gain = stats_gain.values().get(0).getInfo()
                     gain_ha = round((val_gain or 0) / 10000, 2)
 
@@ -582,10 +604,9 @@ else:
                                         'region': roi,
                                         'framesPerSecond': 5,
                                         'min': -25, 'max': -5,
-                                        'palette': ['black', 'blue', 'white'] # Water is dark/black
+                                        'palette': ['black', 'blue', 'white'] 
                                     }
                                     
-                                    # Create monthly composites to smooth animation
                                     monthly = geemap.create_timeseries(
                                         s1_col, p['d1_start'], p['d2_end'], frequency='year', reducer='median'
                                     )
@@ -602,6 +623,87 @@ else:
             except Exception as e:
                 st.error(f"Computation Error: {e}")
 
+    # ==========================================
+    # LOGIC C: FLOOD EXTENT MAPPING
+    # ==========================================
+    elif mode == "🌊 Flood Extent Mapping":
+        with st.spinner("Processing Flood Extent..."):
+            try:
+                # 1. Load S1 Collection (VH Polarization preferred for flood)
+                collection = ee.ImageCollection('COPERNICUS/S1_GRD') \
+                    .filter(ee.Filter.eq('instrumentMode', 'IW')) \
+                    .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH')) \
+                    .filter(ee.Filter.eq('resolution_meters', 10)) \
+                    .filterBounds(roi) \
+                    .select('VH')
+
+                # 2. Select Images
+                before_col = collection.filterDate(p['pre_start'], p['pre_end'])
+                after_col = collection.filterDate(p['post_start'], p['post_end'])
+
+                if before_col.size().getInfo() > 0 and after_col.size().getInfo() > 0:
+                    # Orbit Filter (Ascending preferred)
+                    orbit = 'ASCENDING'
+                    if after_col.filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING')).size().getInfo() == 0:
+                        orbit = 'DESCENDING'
+                    
+                    before = before_col.filter(ee.Filter.eq('orbitProperties_pass', orbit)).median().clip(roi)
+                    after = after_col.filter(ee.Filter.eq('orbitProperties_pass', orbit)).mosaic().clip(roi)
+                    
+                    # 3. Speckle Filtering
+                    smoothing = 50
+                    before_f = before.focal_mean(smoothing, 'circle', 'meters')
+                    after_f = after.focal_mean(smoothing, 'circle', 'meters')
+                    
+                    # 4. Difference & Threshold
+                    difference = after_f.divide(before_f)
+                    difference_binary = difference.gt(p['threshold'])
+                    
+                    # 5. Clean up (Mask Permanent Water & Slopes)
+                    swater = ee.Image('JRC/GSW1_0/GlobalSurfaceWater').select('seasonality')
+                    swater_mask = swater.gte(10).updateMask(swater.gte(10))
+                    
+                    # Remove permanent water
+                    flooded_mask = difference_binary.where(swater_mask, 0)
+                    flooded = flooded_mask.updateMask(flooded_mask)
+                    
+                    # Remove steep slopes (> 5 deg)
+                    dem = ee.Image('WWF/HydroSHEDS/03VFDEM')
+                    slope = ee.Algorithms.Terrain(dem).select('slope')
+                    flooded = flooded.updateMask(slope.lt(5))
+                    
+                    # Remove isolated pixels
+                    flooded = flooded.updateMask(flooded.connectedPixelCount().gte(8))
+                    
+                    image_to_export = flooded
+
+                    # 6. Map Visualization
+                    m.addLayer(before_f, {'min': -25, 'max': 0}, 'Before Flood (Dry)', False)
+                    m.addLayer(after_f, {'min': -25, 'max': 0}, 'After Flood (Wet)', True)
+                    m.addLayer(flooded, {'palette': '0000FF'}, '🌊 Estimated Flood Extent')
+                    
+                    # 7. Statistics
+                    flood_stats = flooded.multiply(ee.Image.pixelArea()).reduceRegion(
+                        reducer=ee.Reducer.sum(),
+                        geometry=roi,
+                        scale=10,
+                        bestEffort=True
+                    )
+                    flood_area_ha = round(flood_stats.values().get(0).getInfo() / 10000, 2)
+
+                    with col_res:
+                        st.markdown('<div class="alert-card">', unsafe_allow_html=True)
+                        st.markdown("### 🌊 Flood Report")
+                        st.metric("Estimated Extent", f"{flood_area_ha} Ha")
+                        st.caption(f"Orbit: {orbit} | Pol: VH")
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                else:
+                    st.error("No Sentinel-1 images found for the specified dates/region.")
+
+            except Exception as e:
+                st.error(f"Error: {e}")
+
     # --- COMMON EXPORT TOOLS ---
     with col_res:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
@@ -610,7 +712,8 @@ else:
         # 1. Drive Export
         if st.button("Save to Drive (GeoTIFF)"):
             if mode == "📍 RWH Site Suitability": img = suitability
-            else: img = image_to_export if image_to_export else ee.Image(0)
+            elif mode == "⚠️ Encroachment (S1 SAR)": img = image_to_export if image_to_export else ee.Image(0)
+            elif mode == "🌊 Flood Extent Mapping": img = image_to_export if image_to_export else ee.Image(0)
             
             ee.batch.Export.image.toDrive(
                 image=img, description=f"GeoSarovar_Export_{datetime.now().strftime('%Y%m%d')}",
@@ -623,13 +726,15 @@ else:
         report_title = st.text_input("Report Title", f"Analysis: {mode}")
         if st.button("Generate Map Image"):
             with st.spinner("Rendering..."):
+                img_rep = image_to_export if image_to_export else ee.Image(0)
+                vis_rep = {'palette': ['blue']} # Default
+
                 if mode == "📍 RWH Site Suitability": 
                     vis_rep = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
-                    img_rep = suitability
-                else: 
-                    # For report, flatten the change map
+                elif mode == "⚠️ Encroachment (S1 SAR)": 
                     vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
-                    img_rep = image_to_export if image_to_export else ee.Image(0)
+                elif mode == "🌊 Flood Extent Mapping":
+                    vis_rep = {'palette': ['0000FF']}
                 
                 buf = generate_static_map_display(img_rep, roi, vis_rep, report_title)
                 if buf:
@@ -639,5 +744,3 @@ else:
 
     with col_map:
         m.to_streamlit()
-
-
