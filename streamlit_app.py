@@ -230,44 +230,71 @@ def calculate_area_by_class(image, region, scale):
         df["Area (ha)"] = df["Area (ha)"].round(2)
     return df
 
-# --- ADVANCED STATIC MAP GENERATOR ---
+# --- ADVANCED STATIC MAP GENERATOR (FIXED) ---
 def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
     try:
-        roi_bounds = roi.bounds().getInfo()['coordinates'][0]
+        # 1. Geometry Prep - FORCE .getInfo() to avoid Serialization Errors
+        if isinstance(roi, ee.Geometry):
+            try:
+                roi_json = roi.getInfo() # Crucial fix for 'request payload' errors
+                roi_bounds = roi.bounds().getInfo()['coordinates'][0]
+            except:
+                st.error("Error reading ROI geometry.")
+                return None
+        else:
+            roi_json = roi
+            roi_bounds = roi['coordinates'][0]
+
         lons = [p[0] for p in roi_bounds]
         lats = [p[1] for p in roi_bounds]
         min_lon, max_lon = min(lons), max(lons)
         min_lat, max_lat = min(lats), max(lats)
+        
         mid_lat = (min_lat + max_lat) / 2
         width_deg = max_lon - min_lon
         height_deg = max_lat - min_lat
+        if height_deg == 0: height_deg = 0.001
+        
         aspect_ratio = (width_deg * np.cos(np.radians(mid_lat))) / height_deg
         fig_width = 12 
         fig_height = fig_width / aspect_ratio
         if fig_height > 20: fig_height = 20
         if fig_height < 4: fig_height = 4
 
+        # 2. Prepare Image
         if 'palette' in vis_params or 'min' in vis_params:
             ready_img = image.visualize(**vis_params)
         else:
             ready_img = image 
             
-        thumb_url = ready_img.getThumbURL({'region': roi, 'dimensions': 1500, 'format': 'png', 'crs': 'EPSG:4326'})
+        # 3. Request Thumbnail (Using JSON ROI)
+        thumb_url = ready_img.getThumbURL({
+            'region': roi_json, 
+            'dimensions': 1000, # Reduced slightly for reliability
+            'format': 'png', 
+            'crs': 'EPSG:4326'
+        })
+        
         response = requests.get(thumb_url, timeout=120)
+        
         if response.status_code != 200:
-            st.error(f"GEE Server Error (Status {response.status_code})")
+            st.error(f"GEE Server Error ({response.status_code}): {response.text}")
             return None
+            
         content_type = response.headers.get('content-type', '')
         if 'image' not in content_type:
             st.error(f"GEE Error: {response.text}")
             return None
 
         img_pil = Image.open(BytesIO(response.content))
+        
+        # 4. Plotting
         fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300, facecolor='#ffffff')
         ax.set_facecolor('#ffffff')
         extent = [min_lon, max_lon, min_lat, max_lat]
         im = ax.imshow(img_pil, extent=extent, aspect='auto')
         ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#00204a')
+        
         ax.tick_params(colors='black', labelcolor='black', labelsize=10)
         ax.grid(color='black', linestyle='--', linewidth=0.5, alpha=0.1)
         for spine in ax.spines.values():
@@ -287,11 +314,13 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
             order = 10 ** np.floor(np.log10(target_len_met))
             nice_len_met = round(target_len_met / order) * order
             nice_len_deg = nice_len_met / met_per_deg_lon
+            
             pad_x = width_deg * 0.05
             pad_y = height_deg * 0.05
             start_x = max_lon - pad_x - nice_len_deg
             start_y = min_lat + pad_y
             bar_height = height_deg * 0.015
+            
             rect = mpatches.Rectangle((start_x, start_y), nice_len_deg, bar_height, linewidth=1, edgecolor='black', facecolor='black')
             ax.add_patch(rect)
             label = f"{int(nice_len_met/1000)} km" if nice_len_met >= 1000 else f"{int(nice_len_met)} m"
@@ -323,7 +352,9 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         buf.seek(0)
         plt.close(fig)
         return buf
-    except Exception as e: return None
+    except Exception as e:
+        st.error(f"Map Gen Error: {e}")
+        return None
 
 # --- 5. SIDEBAR ---
 with st.sidebar:
@@ -686,23 +717,22 @@ else:
         if st.button("Generate Map Image"):
             with st.spinner("Rendering..."):
                 img_rep = image_to_export if image_to_export else ee.Image(0)
-                vis_rep = {'palette': ['blue']} 
-                is_categorical = False
-                class_names = None
-                cmap = None
-
-                if mode == "📍 RWH Site Suitability": 
-                    vis_rep = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
-                    cmap = vis_rep['palette']
-                    is_categorical = False
+                # Fix: Flood Mapping is Binary 0-1, so set min/max explicitly for blue palette to work
+                if mode == "🌊 Flood Extent Mapping":
+                    vis_rep = {'min': 0, 'max': 1, 'palette': ['0000FF']}
+                    is_categorical = True
+                    class_names = ['Flood Extent']
+                    cmap = None
                 elif mode == "⚠️ Encroachment (S1 SAR)": 
                     vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
                     is_categorical = True
                     class_names = ['Stable Water', 'Encroachment', 'New Water']
-                elif mode == "🌊 Flood Extent Mapping":
-                    vis_rep = {'palette': ['0000FF']}
-                    is_categorical = True
-                    class_names = ['Flood Extent']
+                    cmap = None
+                elif mode == "📍 RWH Site Suitability": 
+                    vis_rep = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
+                    cmap = vis_rep['palette']
+                    is_categorical = False
+                    class_names = None
                 
                 buf = generate_static_map_display(img_rep, roi, vis_rep, report_title, cmap_colors=cmap, is_categorical=is_categorical, class_names=class_names)
                 if buf:
