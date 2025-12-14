@@ -533,24 +533,11 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Helper for Safe Map Loading - UPDATED TO FIX BASEMAP
+# Helper for Safe Map Loading - UPDATED: FORCE HYBRID MODE
 def get_safe_map(height=500):
-    # We explicitly set the basemap to Esri.WorldImagery to stop OSM from loading
-    try:
-        m = geemap.Map(height=height, basemap="Esri.WorldImagery")
-    except Exception:
-        # Fallback: If the shortcut fails, we manually add the tile layer
-        m = geemap.Map(height=height)
-        try:
-            m.clear_layers() 
-        except:
-            pass
-        
-        m.add_tile_layer(
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            name="Esri Satellite",
-            attribution="Esri"
-        )
+    # Using 'HYBRID' forces Google Satellite + Labels.
+    # This matches SpectralNi30 exactly and guarantees no white map.
+    m = geemap.Map(height=height, basemap="HYBRID")
     return m
 
 if not st.session_state['calculated']:
