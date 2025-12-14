@@ -447,7 +447,7 @@ with st.sidebar:
         d2_end = col4.date_input("End 2", datetime(2024, 9, 30))
         params = {'d1_start': d1_start.strftime("%Y-%m-%d"), 'd1_end': d1_end.strftime("%Y-%m-%d"), 'd2_start': d2_start.strftime("%Y-%m-%d"), 'd2_end': d2_end.strftime("%Y-%m-%d"), 'orbit': orbit}
     
-    elif app_mode == "🌊 Flood Extent Mapping":
+    elif app_mode == "Flood Extent Mapping":
         st.markdown("### 3. Flood Event Details")
         orbit = st.radio("Orbit Pass", ["BOTH", "ASCENDING", "DESCENDING"])
         st.markdown("**Before Flood (Dry)**")
@@ -641,7 +641,7 @@ else:
     # ==========================================
     # LOGIC C: FLOOD EXTENT MAPPING
     # ==========================================
-    elif mode == "🌊 Flood Extent Mapping":
+    elif mode == "Flood Extent Mapping":
         with st.spinner("Processing Flood Extent..."):
             try:
                 collection = ee.ImageCollection('COPERNICUS/S1_GRD') \
@@ -727,7 +727,7 @@ else:
         if st.button("Save to Drive (GeoTIFF)"):
             if mode == "📍 RWH Site Suitability": img = suitability
             elif mode == "⚠️ Encroachment (S1 SAR)": img = image_to_export if image_to_export else ee.Image(0)
-            elif mode == "🌊 Flood Extent Mapping": img = image_to_export if image_to_export else ee.Image(0)
+            elif mode == "Flood Extent Mapping": img = image_to_export if image_to_export else ee.Image(0)
             
             ee.batch.Export.image.toDrive(
                 image=img, description=f"GeoSarovar_Export_{datetime.now().strftime('%Y%m%d')}",
@@ -741,7 +741,7 @@ else:
             with st.spinner("Rendering..."):
                 img_rep = image_to_export if image_to_export else ee.Image(0)
                 # FIX: Add # to color codes for Matplotlib
-                if mode == "🌊 Flood Extent Mapping":
+                if mode == "Flood Extent Mapping":
                     vis_rep = {'min': 0, 'max': 1, 'palette': ['#0000FF']}
                     is_categorical = True
                     class_names = ['Flood Extent']
@@ -764,4 +764,3 @@ else:
 
     with col_map:
         m.to_streamlit()
-
