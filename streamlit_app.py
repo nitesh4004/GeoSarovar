@@ -256,7 +256,7 @@ with st.sidebar:
     st.markdown("### 1. Select Module")
     app_mode = st.radio(
         "Choose Functionality:",
-        ["📍 RWH Site Suitability", "⚠️ Encroachment (S1 SAR)", "📉 Hydrological Drought (SPI)"],
+        ["📍 RWH Site Suitability", "⚠️ Encroachment (S1 SAR)"],
         label_visibility="collapsed"
     )
 
@@ -363,27 +363,6 @@ with st.sidebar:
             'd2_start': d2_start.strftime("%Y-%m-%d"), 
             'd2_end': d2_end.strftime("%Y-%m-%d")
         }
-    
-    elif app_mode == "📉 Hydrological Drought (SPI)":
-        st.markdown("### 3. SPI Parameters")
-        st.info("Compares current rain to 30-yr historical average.")
-        
-        spi_year = st.number_input("Target Year", 2000, datetime.now().year, 2023)
-        season_sel = st.selectbox("Season", ["Annual", "Monsoon (Jun-Sep)", "Rabi/Winter (Oct-Dec)"])
-        
-        if season_sel == "Annual":
-            m_start, m_end = 1, 12
-        elif season_sel == "Monsoon (Jun-Sep)":
-            m_start, m_end = 6, 9
-        else: # Winter
-            m_start, m_end = 10, 12
-            
-        params = {
-            'year': spi_year,
-            'm_start': m_start,
-            'm_end': m_end,
-            'season_name': season_sel
-        }
 
     st.markdown("###")
     if st.button("RUN ANALYSIS 🚀"):
@@ -441,8 +420,6 @@ else:
     m = get_safe_map(700)
     m.centerObject(roi, 13)
 
-    image_to_export = None # Placeholder for export
-
     # ==========================================
     # LOGIC A: RWH SITE SUITABILITY
     # ==========================================
@@ -470,8 +447,7 @@ else:
             
             # Overlay
             suitability = (rain_n.multiply(p['w_rain'])).add(slope_n.multiply(p['w_slope'])).add(lulc_score.multiply(p['w_lulc'])).add(soil_n.multiply(p['w_soil']))
-            image_to_export = suitability
-
+            
             vis = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
             m.addLayer(suitability, vis, 'Suitability Index')
             m.add_colorbar(vis, label="RWH Potential")
@@ -536,6 +512,8 @@ else:
                 water_initial = get_sar_water(p['d1_start'], p['d1_end'], roi)
                 water_final = get_sar_water(p['d2_start'], p['d2_end'], roi)
 
+                image_to_export = None
+
                 if water_initial and water_final:
                     # 2. Change Detection Logic
                     # Initial(1) AND Final(0) -> LOSS (Encroachment)
@@ -564,14 +542,17 @@ else:
                     m.addLayer(encroachment, {'palette': 'red'}, '🔴 Encroachment (Loss)')
                     m.addLayer(new_water, {'palette': 'blue'}, '🔵 New Water (Gain)')
                     
-                    # 5. Stats
+                    # 5. Stats - ROBUST FIX FOR 'Dictionary key' ERROR
+                    # Instead of assuming key 'nd', we take the first value computed
                     pixel_area = encroachment.multiply(ee.Image.pixelArea())
                     stats_loss = pixel_area.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9, bestEffort=True)
+                    # Safe retrieval
                     val_loss = stats_loss.values().get(0).getInfo()
                     loss_ha = round((val_loss or 0) / 10000, 2)
                     
                     pixel_area_gain = new_water.multiply(ee.Image.pixelArea())
                     stats_gain = pixel_area_gain.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9, bestEffort=True)
+                    # Safe retrieval
                     val_gain = stats_gain.values().get(0).getInfo()
                     gain_ha = round((val_gain or 0) / 10000, 2)
 
@@ -621,80 +602,6 @@ else:
             except Exception as e:
                 st.error(f"Computation Error: {e}")
 
-    # ==========================================
-    # LOGIC C: HYDROLOGICAL DROUGHT (SPI)
-    # ==========================================
-    elif mode == "📉 Hydrological Drought (SPI)":
-        with st.spinner("Calculating SPI (Drought Index)..."):
-            try:
-                # 1. Dataset: CHIRPS Rainfall
-                chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/PENTAD")
-                
-                # 2. Historical Baseline (1981-2010 Standard 30 yr)
-                # Filter by month range (e.g., just Monsoon months)
-                baseline_col = chirps.filterDate('1981-01-01', '2010-12-31')\
-                    .filter(ee.Filter.calendarRange(p['m_start'], p['m_end'], 'month'))
-                
-                # Calculate Long-term Mean and StdDev for these months
-                lt_mean = baseline_col.mean().clip(roi)
-                lt_std = baseline_col.reduce(ee.Reducer.stdDev()).clip(roi)
-                
-                # 3. Target Year Rainfall
-                current_col = chirps.filterDate(f"{p['year']}-01-01", f"{p['year']}-12-31")\
-                    .filter(ee.Filter.calendarRange(p['m_start'], p['m_end'], 'month'))
-                
-                if current_col.size().getInfo() > 0:
-                    current_mean = current_col.mean().clip(roi)
-                    
-                    # 4. SPI Calculation (Z-Score Approximation)
-                    # SPI = (Current - Mean) / StdDev
-                    spi = (current_mean.subtract(lt_mean)).divide(lt_std).rename('SPI')
-                    image_to_export = spi
-                    
-                    # 5. Visualization
-                    # SPI Range: < -2 (Extreme Dry) to > 2 (Extreme Wet)
-                    # Palette: Red/Brown (Dry) -> Yellow -> Blue (Wet)
-                    spi_vis = {'min': -2.5, 'max': 2.5, 'palette': ['8c510a', 'd8b365', 'f6e8c3', 'c7eae5', '5ab4ac', '01665e']}
-                    m.addLayer(spi, spi_vis, f"SPI {p['year']}")
-                    m.add_colorbar(spi_vis, label="Standardized Precipitation Index (SPI)")
-                    
-                    # 6. Classification for Stats
-                    # Class 1: Extreme Drought (<-2)
-                    # Class 2: Severe Drought (-2 to -1.5)
-                    # Class 3: Moderate Drought (-1.5 to -1)
-                    # Class 4: Mild/Normal (-1 to 1)
-                    # Class 5: Wet (> 1)
-                    spi_class = ee.Image(0)\
-                        .where(spi.lte(-2), 1)\
-                        .where(spi.gt(-2).And(spi.lte(-1.5)), 2)\
-                        .where(spi.gt(-1.5).And(spi.lte(-1)), 3)\
-                        .where(spi.gt(-1).And(spi.lte(1)), 4)\
-                        .where(spi.gt(1), 5).clip(roi)
-                        
-                    with col_res:
-                        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-                        st.markdown(f'<div class="card-label">📉 DROUGHT STATS ({p["year"]})</div>', unsafe_allow_html=True)
-                        st.caption(f"Season: {p['season_name']}")
-                        
-                        df_spi = calculate_area_by_class(spi_class, roi, 5000) # Coarser scale for regional stats
-                        spi_names = {
-                            "Class 1": "🔴 Extreme Drought",
-                            "Class 2": "🟠 Severe Drought", 
-                            "Class 3": "🟡 Moderate Drought",
-                            "Class 4": "⚪ Normal",
-                            "Class 5": "🔵 Wet/Surplus"
-                        }
-                        if not df_spi.empty:
-                            df_spi['Class'] = df_spi['Class'].map(spi_names).fillna(df_spi['Class'])
-                            st.dataframe(df_spi, hide_index=True, use_container_width=True)
-                        
-                        st.markdown("</div>", unsafe_allow_html=True)
-                else:
-                    st.error("No rainfall data found for this year/season.")
-
-            except Exception as e:
-                st.error(f"SPI Error: {e}")
-
     # --- COMMON EXPORT TOOLS ---
     with col_res:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
@@ -702,29 +609,27 @@ else:
         
         # 1. Drive Export
         if st.button("Save to Drive (GeoTIFF)"):
-            if image_to_export:
-                desc = f"GeoSarovar_{mode.split()[1]}_{datetime.now().strftime('%Y%m%d')}"
-                ee.batch.Export.image.toDrive(
-                    image=image_to_export, description=desc,
-                    scale=30, region=roi, folder='GeoSarovar_Exports'
-                ).start()
-                st.toast("Export started! Check Google Drive.")
-            else:
-                st.warning("No result to export.")
+            if mode == "📍 RWH Site Suitability": img = suitability
+            else: img = image_to_export if image_to_export else ee.Image(0)
+            
+            ee.batch.Export.image.toDrive(
+                image=img, description=f"GeoSarovar_Export_{datetime.now().strftime('%Y%m%d')}",
+                scale=30, region=roi, folder='GeoSarovar_Exports'
+            ).start()
+            st.toast("Export started! Check Google Drive.")
 
         # 2. Report Image
         st.markdown("---")
         report_title = st.text_input("Report Title", f"Analysis: {mode}")
         if st.button("Generate Map Image"):
             with st.spinner("Rendering..."):
-                img_rep = image_to_export if image_to_export else ee.Image(0)
-                
                 if mode == "📍 RWH Site Suitability": 
                     vis_rep = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
-                elif mode == "⚠️ Encroachment (S1 SAR)":
+                    img_rep = suitability
+                else: 
+                    # For report, flatten the change map
                     vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
-                elif mode == "📉 Hydrological Drought (SPI)":
-                     vis_rep = {'min': -2.5, 'max': 2.5, 'palette': ['8c510a', 'd8b365', 'f6e8c3', 'c7eae5', '5ab4ac', '01665e']}
+                    img_rep = image_to_export if image_to_export else ee.Image(0)
                 
                 buf = generate_static_map_display(img_rep, roi, vis_rep, report_title)
                 if buf:
@@ -734,3 +639,5 @@ else:
 
     with col_map:
         m.to_streamlit()
+
+
