@@ -6,8 +6,11 @@ import xml.etree.ElementTree as ET
 import re
 import requests
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.colors as mcolors
+import numpy as np
 from io import BytesIO
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from datetime import datetime, timedelta
 import pandas as pd
 import folium 
@@ -223,31 +226,147 @@ def calculate_area_by_class(image, region, scale):
         df["Area (ha)"] = df["Area (ha)"].round(2)
     return df
 
-def generate_static_map_display(image, roi, vis_params, title):
-    """Generates a JPG map for reports"""
+# --- ADVANCED STATIC MAP GENERATOR (FROM SpectralNi30) ---
+def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
     try:
+        # 1. CALCULATE GEOMETRY & ASPECT RATIO
         roi_bounds = roi.bounds().getInfo()['coordinates'][0]
         lons = [p[0] for p in roi_bounds]
         lats = [p[1] for p in roi_bounds]
-        min_lon, max_lon, min_lat, max_lat = min(lons), max(lons), min(lats), max(lats)
         
-        ready_img = image.visualize(**vis_params) if 'palette' in vis_params else image
-        thumb_url = ready_img.getThumbURL({'region': roi, 'dimensions': 1000, 'format': 'png'})
+        min_lon, max_lon = min(lons), max(lons)
+        min_lat, max_lat = min(lats), max(lats)
         
-        response = requests.get(thumb_url, timeout=30)
+        mid_lat = (min_lat + max_lat) / 2
+        width_deg = max_lon - min_lon
+        height_deg = max_lat - min_lat
+        
+        aspect_ratio = (width_deg * np.cos(np.radians(mid_lat))) / height_deg
+        
+        fig_width = 12 
+        fig_height = fig_width / aspect_ratio
+        
+        if fig_height > 20: fig_height = 20
+        if fig_height < 4: fig_height = 4
+
+        # 2. PREPARE IMAGE FROM GEE
+        if 'palette' in vis_params or 'min' in vis_params:
+            ready_img = image.visualize(**vis_params)
+        else:
+            ready_img = image 
+            
+        thumb_url = ready_img.getThumbURL({
+            'region': roi,
+            'dimensions': 1500, 
+            'format': 'png',
+            'crs': 'EPSG:4326' 
+        })
+        
+        response = requests.get(thumb_url, timeout=120)
+        
+        if response.status_code != 200:
+            st.error(f"GEE Server Error (Status {response.status_code})")
+            return None
+            
+        content_type = response.headers.get('content-type', '')
+        if 'image' not in content_type:
+            st.error(f"GEE Error: {response.text}")
+            return None
+
         img_pil = Image.open(BytesIO(response.content))
         
-        fig, ax = plt.subplots(figsize=(10, 10), dpi=150)
-        ax.imshow(img_pil, extent=[min_lon, max_lon, min_lat, max_lat], aspect='auto')
-        ax.set_title(title, fontsize=14, fontweight='bold', color='#00204a')
-        ax.axis('off')
+        # 3. PLOT WITH WHITE BACKGROUND AND BLACK TEXT
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300, facecolor='#ffffff')
+        ax.set_facecolor('#ffffff')
+        
+        extent = [min_lon, max_lon, min_lat, max_lat]
+        
+        im = ax.imshow(img_pil, extent=extent, aspect='auto')
+        
+        # Dark Blue Title
+        ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#00204a')
+        
+        # Styling ticks for White background (Black text)
+        ax.tick_params(colors='black', labelcolor='black', labelsize=10)
+        ax.grid(color='black', linestyle='--', linewidth=0.5, alpha=0.1)
+        for spine in ax.spines.values():
+            spine.set_edgecolor('black')
+            spine.set_linewidth(1)
+        
+        # 4. NORTH ARROW / DIRECTION MARKER
+        ax.annotate('N', xy=(0.97, 0.95), xytext=(0.97, 0.88),
+                    xycoords='axes fraction', textcoords='axes fraction',
+                    arrowprops=dict(facecolor='black', edgecolor='black', width=4, headwidth=12, headlength=10),
+                    ha='center', va='center', fontsize=16, fontweight='bold', color='black')
+
+        # 5. SCALE BAR LOGIC
+        try:
+            center_lat = (min_lat + max_lat) / 2
+            met_per_deg_lon = 111320 * np.cos(np.radians(center_lat))
+            
+            width_met = width_deg * met_per_deg_lon
+            target_len_met = width_met / 5
+            
+            order = 10 ** np.floor(np.log10(target_len_met))
+            nice_len_met = round(target_len_met / order) * order
+            nice_len_deg = nice_len_met / met_per_deg_lon
+            
+            pad_x = width_deg * 0.05
+            pad_y = height_deg * 0.05
+            
+            start_x = max_lon - pad_x - nice_len_deg
+            start_y = min_lat + pad_y
+            
+            bar_height = height_deg * 0.015
+            
+            # Black scale bar rectangle
+            rect = mpatches.Rectangle((start_x, start_y), nice_len_deg, bar_height, 
+                                    linewidth=1, edgecolor='black', facecolor='black')
+            ax.add_patch(rect)
+            
+            label = f"{int(nice_len_met/1000)} km" if nice_len_met >= 1000 else f"{int(nice_len_met)} m"
+            
+            # Text label above scale bar (Black)
+            ax.text(start_x + nice_len_deg/2, start_y + bar_height + (height_deg*0.01), label, 
+                    color='black', ha='center', va='bottom', fontsize=12, fontweight='bold')
+        except:
+            pass
+        
+        # 6. LEGEND LOGIC
+        if is_categorical and class_names and 'palette' in vis_params:
+            patches = []
+            for name, color in zip(class_names, vis_params['palette']):
+                patches.append(mpatches.Patch(color=color, label=name))
+            legend = ax.legend(handles=patches, loc='upper center', bbox_to_anchor=(0.5, -0.08), 
+                               frameon=False, title="Legend", ncol=min(len(class_names), 4))
+            plt.setp(legend.get_title(), color='#00204a', fontweight='bold', fontsize=12)
+            for text in legend.get_texts():
+                text.set_color("black")
+                text.set_fontsize(10)
+                
+        elif cmap_colors and 'min' in vis_params:
+            cmap = mcolors.LinearSegmentedColormap.from_list("custom", cmap_colors)
+            norm = mcolors.Normalize(vmin=vis_params['min'], vmax=vis_params['max'])
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
+            cax = fig.add_axes([0.92, 0.15, 0.02, 0.7]) 
+            cbar = plt.colorbar(sm, cax=cax)
+            cbar.ax.yaxis.set_tick_params(color='black')
+            cbar.set_label('Index Value', color='black', fontsize=12)
+            plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='black', fontsize=10)
         
         buf = BytesIO()
-        plt.savefig(buf, format='jpg', bbox_inches='tight')
+        plt.savefig(buf, format='jpg', bbox_inches='tight', facecolor='#ffffff')
         buf.seek(0)
         plt.close(fig)
         return buf
-    except: return None
+        
+    except UnidentifiedImageError:
+        st.error("Error: GEE returned a text error instead of an image.")
+        return None
+    except Exception as e:
+        st.error(f"Map Generation Error: {e}")
+        return None
 
 # --- 5. SIDEBAR ---
 with st.sidebar:
@@ -727,16 +846,39 @@ else:
         if st.button("Generate Map Image"):
             with st.spinner("Rendering..."):
                 img_rep = image_to_export if image_to_export else ee.Image(0)
-                vis_rep = {'palette': ['blue']} # Default
-
-                if mode == "📍 RWH Site Suitability": 
-                    vis_rep = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
-                elif mode == "⚠️ Encroachment (S1 SAR)": 
-                    vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
-                elif mode == "🌊 Flood Extent Mapping":
-                    vis_rep = {'palette': ['0000FF']}
                 
-                buf = generate_static_map_display(img_rep, roi, vis_rep, report_title)
+                # Default Params
+                vis_rep = {'palette': ['blue']} 
+                is_categorical = False
+                class_names = None
+                cmap = None
+
+                # Specific Visualization Logic for Each Mode
+                if mode == "📍 RWH Site Suitability": 
+                    # Continuous
+                    vis_rep = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
+                    cmap = vis_rep['palette']
+                    is_categorical = False
+                    
+                elif mode == "⚠️ Encroachment (S1 SAR)": 
+                    # Categorical
+                    vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
+                    is_categorical = True
+                    class_names = ['Stable Water', 'Encroachment', 'New Water']
+                    
+                elif mode == "🌊 Flood Extent Mapping":
+                    # Categorical (Binary)
+                    vis_rep = {'palette': ['0000FF']}
+                    is_categorical = True
+                    class_names = ['Flood Extent']
+                
+                buf = generate_static_map_display(
+                    img_rep, roi, vis_rep, report_title,
+                    cmap_colors=cmap,
+                    is_categorical=is_categorical,
+                    class_names=class_names
+                )
+                
                 if buf:
                     st.download_button("Download JPG", buf, "GeoSarovar_Map.jpg", "image/jpeg", use_container_width=True)
         
