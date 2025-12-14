@@ -372,7 +372,7 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
 with st.sidebar:
     st.image("https://raw.githubusercontent.com/nitesh4004/GeoSarovar/main/geosarovar.png", use_container_width=True)
     st.markdown("### 1. Select Module")
-    app_mode = st.radio("Choose Functionality:", ["📍 RWH Site Suitability", "⚠️ Encroachment (S1 SAR)", "Flood Extent Mapping"], label_visibility="collapsed")
+    app_mode = st.radio("Choose Functionality:", ["📍 RWH Site Suitability", "⚠️ Encroachment (S1 SAR)", "🌊 Flood Extent Mapping"], label_visibility="collapsed")
     st.markdown("---")
     st.markdown("### 2. Location (ROI)")
     roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
@@ -523,7 +523,7 @@ else:
             except: soil_n = ee.Image(0.5).clip(roi)
             
             suitability = (rain_n.multiply(p['w_rain'])).add(slope_n.multiply(p['w_slope'])).add(lulc_score.multiply(p['w_lulc'])).add(soil_n.multiply(p['w_soil']))
-            vis = {'min': 0, 'max': 0.8, 'palette': ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']}
+            vis = {'min': 0, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
             m.addLayer(suitability, vis, 'Suitability Index')
             m.add_colorbar(vis, label="RWH Potential")
             image_to_export = suitability
@@ -672,21 +672,32 @@ else:
                     difference = after_f.divide(before_f)
                     difference_binary = difference.gt(p['threshold'])
                     
-                    swater = ee.Image('JRC/GSW1_0/GlobalSurfaceWater').select('seasonality')
-                    swater_mask = swater.gte(10).updateMask(swater.gte(10))
-                    flooded_mask = difference_binary.where(swater_mask, 0)
-                    flooded = flooded_mask.updateMask(flooded_mask)
+                    # --- FIXED PERMANENT WATER MASKING (JRC V1.4) ---
+                    # Use Occurrence (Historical Water Frequency)
+                    gsw = ee.Image("JRC/GSW1_4/GlobalSurfaceWater")
+                    occurrence = gsw.select('occurrence')
+                    # Mask pixels that are water > 30% of the time (Existing Lakes/Rivers)
+                    permanent_water_mask = occurrence.gt(30)
                     
+                    # Only keep flood if it's NOT permanent water
+                    flooded = difference_binary.updateMask(permanent_water_mask.Not())
+                    
+                    # Slope Masking
                     dem = ee.Image('WWF/HydroSHEDS/03VFDEM')
                     slope = ee.Algorithms.Terrain(dem).select('slope')
                     flooded = flooded.updateMask(slope.lt(5))
+                    
+                    # Noise Removal
                     flooded = flooded.updateMask(flooded.connectedPixelCount().gte(8))
+                    
+                    # Final selfMask so 0s are transparent
+                    flooded = flooded.selfMask()
                     
                     image_to_export = flooded
 
                     m.addLayer(before_f, {'min': -25, 'max': 0}, 'Before Flood (Dry)', False)
                     m.addLayer(after_f, {'min': -25, 'max': 0}, 'After Flood (Wet)', True)
-                    m.addLayer(flooded, {'palette': '0000FF'}, '🌊 Estimated Flood Extent')
+                    m.addLayer(flooded, {'palette': ['#0000FF']}, '🌊 Estimated Flood Extent')
                     
                     flood_stats = flooded.multiply(ee.Image.pixelArea()).reduceRegion(reducer=ee.Reducer.sum(), geometry=roi, scale=10, bestEffort=True)
                     flood_area_ha = round(flood_stats.values().get(0).getInfo() / 10000, 2)
@@ -753,4 +764,3 @@ else:
 
     with col_map:
         m.to_streamlit()
-
