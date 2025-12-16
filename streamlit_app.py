@@ -37,7 +37,7 @@ st.markdown("""
         --bg-color: #ffffff;
         --accent-primary: #00204a;   
         --accent-secondary: #005792; 
-        --text-primary: #00204a;       
+        --text-primary: #00204a;        
     }
 
     .stApp { 
@@ -135,7 +135,6 @@ st.markdown("""
 
 # --- 3. AUTHENTICATION ---
 try:
-    # Try getting secrets from Streamlit secrets
     if "gcp_service_account" in st.secrets:
         service_account = st.secrets["gcp_service_account"]["client_email"]
         secret_dict = dict(st.secrets["gcp_service_account"])
@@ -143,7 +142,6 @@ try:
         credentials = ee.ServiceAccountCredentials(service_account, key_data=key_data)
         ee.Initialize(credentials)
     else:
-        # Fallback to standard flow (useful for local dev with gcloud installed)
         ee.Initialize()
 except Exception as e:
     st.error(f"⚠️ Authentication Error: {e}")
@@ -307,7 +305,7 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
 with st.sidebar:
     st.image("https://raw.githubusercontent.com/nitesh4004/GeoSarovar/main/geosarovar.png", use_container_width=True)
     st.markdown("### 1. Select Module")
-    app_mode = st.radio("Choose Functionality:", ["📍 RWH Site Suitability", "⚠️ Encroachment (S1 SAR)", "Flood Extent Mapping"], label_visibility="collapsed")
+    app_mode = st.radio("Choose Functionality:", ["📍 RWH Site Suitability", "⚠️ Encroachment (S1 SAR)", "Flood Extent Mapping", "🧪 Water Quality"], label_visibility="collapsed")
     st.markdown("---")
     st.markdown("### 2. Location (ROI)")
     roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
@@ -404,6 +402,16 @@ with st.sidebar:
         threshold = st.slider("Difference Threshold", 1.0, 1.5, 1.25, 0.05)
         params = {'pre_start': pre_start.strftime("%Y-%m-%d"), 'pre_end': pre_end.strftime("%Y-%m-%d"), 'post_start': post_start.strftime("%Y-%m-%d"), 'post_end': post_end.strftime("%Y-%m-%d"), 'threshold': threshold, 'orbit': orbit}
 
+    elif app_mode == "🧪 Water Quality":
+        st.markdown("### 3. Monitoring Config")
+        wq_param = st.selectbox("Parameter", ["Turbidity (NDTI)", "Total Suspended Solids (TSS)", "Cyanobacteria Index", "Chlorophyll-a", "CDOM (Organic Matter)"])
+        st.markdown("**Timeframe**")
+        col1, col2 = st.columns(2)
+        wq_start = col1.date_input("Start", datetime.now()-timedelta(days=90))
+        wq_end = col2.date_input("End", datetime.now())
+        cloud_thresh = st.slider("Max Cloud Cover %", 5, 50, 20)
+        params = {'param': wq_param, 'start': wq_start.strftime("%Y-%m-%d"), 'end': wq_end.strftime("%Y-%m-%d"), 'cloud': cloud_thresh}
+
     st.markdown("###")
     if st.button("RUN ANALYSIS 🚀"):
         if st.session_state['roi']:
@@ -447,9 +455,10 @@ else:
     m = get_safe_map(700)
     m.centerObject(roi, 13)
     image_to_export = None 
+    vis_export = {}
 
     # ==========================================
-    # LOGIC A: RWH SITE SUITABILITY (IMPROVED)
+    # LOGIC A: RWH SITE SUITABILITY
     # ==========================================
     if mode == "📍 RWH Site Suitability":
         with st.spinner("Calculating Hydrological Suitability..."):
@@ -470,7 +479,6 @@ else:
             slope = ee.Terrain.slope(dem)
             
             # Calculate TWI (Topographic Wetness Index) for Flow Accumulation
-            # Using HydroSHEDS Upstream Area as proxy for Flow Accumulation to reduce noise
             flow_acc = ee.Image("WWF/HydroSHEDS/15ACC").select('b1').clip(roi)
             # TWI formula approx: ln(a / tan(b))
             twi = flow_acc.log().subtract(slope.multiply(0.01745).tan().log()).rename('twi')
@@ -479,7 +487,6 @@ else:
             twi_n = twi.unitScale(2, 12).clamp(0, 1) # Clamp outliers
             
             # Normalize Slope (Lower is generally better, but not 0)
-            # Ideal slope 1-5%. > 20% is bad.
             slope_n = ee.Image(1).subtract(slope.clamp(0, 25).unitScale(0, 25))
 
             # Combined Terrain Score (50% TWI, 50% Slope)
@@ -504,7 +511,6 @@ else:
                 soil_n = ee.Image(0.5).clip(roi)
 
             # --- 2. WEIGHTED OVERLAY (MCDA) ---
-            # Avoid division by zero
             tot = p['total'] if p['total'] > 0 else 1
             
             suitability = (
@@ -525,16 +531,15 @@ else:
             m.add_colorbar(vis, label="RWH Potential (MCDA Score)")
             
             image_to_export = final_suitability
+            vis_export = vis
 
             # Find Peak Suitability Points (Potential Check Dams)
             try:
-                # Find local maxima in highly suitable areas (>0.7)
                 high_suit = final_suitability.gt(0.75)
                 vectors = high_suit.reduceToVectors(
                     geometry=roi, scale=100, geometryType='centroid', 
                     eightConnected=False, maxPixels=1e8
                 )
-                # Limit to top 5 points to avoid clutter
                 m.addLayer(vectors, {'color': 'blue'}, 'Suggested Locations')
             except: pass
 
@@ -596,6 +601,7 @@ else:
 
                     change_map = ee.Image(0).where(stable_water, 1).where(encroachment, 2).where(new_water, 3).clip(roi).selfMask()
                     image_to_export = change_map
+                    vis_export = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
 
                     left_layer = geemap.ee_tile_layer(water_initial, {'palette': 'blue'}, "Initial Water")
                     right_layer = geemap.ee_tile_layer(water_final, {'palette': 'cyan'}, "Final Water")
@@ -689,6 +695,7 @@ else:
                     flooded = flooded.selfMask()
                     
                     image_to_export = flooded
+                    vis_export = {'min': 0, 'max': 1, 'palette': ['#0000FF']}
 
                     m.addLayer(before_f, {'min': -25, 'max': 0}, 'Before Flood (Dry)', False)
                     m.addLayer(after_f, {'min': -25, 'max': 0}, 'After Flood (Wet)', True)
@@ -714,40 +721,188 @@ else:
             except Exception as e:
                 st.error(f"Error: {e}")
 
+    # ==========================================
+    # LOGIC D: WATER QUALITY (Sentinel-2)
+    # ==========================================
+    elif mode == "🧪 Water Quality":
+        with st.spinner(f"Computing {p['param']}..."):
+            try:
+                # 1. PRE-PROCESSING FUNCTION
+                def mask_clouds_and_water(img):
+                    # Cloud Masking (using S2_CLOUD_PROBABILITY)
+                    cloud_prob = ee.Image(img.get('cloud_mask')).select('probability')
+                    is_cloud = cloud_prob.gt(p['cloud'])
+                    
+                    # Scale Bands
+                    bands = img.select(['B.*']).multiply(0.0001)
+                    
+                    # Water Masking (NDWI > 0.1)
+                    ndwi = bands.normalizedDifference(['B3', 'B8']).rename('ndwi')
+                    is_water = ndwi.gt(0.1)
+                    
+                    # Return masked image with scaled bands
+                    return bands.updateMask(is_cloud.Not()).updateMask(is_water).copyProperties(img, ['system:time_start'])
+
+                # 2. LOAD COLLECTIONS
+                s2_sr = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED").filterDate(p['start'], p['end']).filterBounds(roi)
+                s2_cloud = ee.ImageCollection("COPERNICUS/S2_CLOUD_PROBABILITY").filterDate(p['start'], p['end']).filterBounds(roi)
+                
+                # Join collections for cloud masking
+                s2_joined = ee.Join.saveFirst('cloud_mask').apply(
+                    primary=s2_sr, secondary=s2_cloud,
+                    condition=ee.Filter.equals(leftField='system:index', rightField='system:index')
+                )
+                
+                # 3. COMPUTE SELECTED INDEX
+                processed_col = ee.ImageCollection(s2_joined).map(mask_clouds_and_water)
+                
+                viz_params = {}
+                result_layer = None
+                layer_name = ""
+
+                if "Turbidity" in p['param']:
+                    # NDTI: (Red - Green) / (Red + Green) -> (B4 - B3) / (B4 + B3)
+                    def calc_ndti(img):
+                        return img.normalizedDifference(['B4', 'B3']).rename('ndti').copyProperties(img, ['system:time_start'])
+                    
+                    final_col = processed_col.map(calc_ndti)
+                    result_layer = final_col.mean().clip(roi)
+                    viz_params = {'min': -0.1, 'max': 0.2, 'palette': ['blue', 'green', 'yellow', 'orange', 'red']} # Low to High Turbidity
+                    layer_name = "Avg. Turbidity (NDTI)"
+
+                elif "TSS" in p['param']:
+                    # TSS: B7 * (B5 / B2)
+                    def calc_tss(img):
+                        tss = img.expression('B7 * (B5 / B2)', {
+                            'B7': img.select('B7'), 'B5': img.select('B5'), 'B2': img.select('B2')
+                        }).rename('tss')
+                        return tss.copyProperties(img, ['system:time_start'])
+                    
+                    final_col = processed_col.map(calc_tss)
+                    result_layer = final_col.median().clip(roi)
+                    viz_params = {'min': 0, 'max': 5, 'palette': ['blue', 'cyan', 'lime', 'yellow', 'red']}
+                    layer_name = "Total Suspended Solids"
+
+                elif "Cyanobacteria" in p['param']:
+                    # Cyano: 115530.31 * (((B3 * B4)/B2) ** 2.38)
+                    def calc_cyano(img):
+                        cyano = img.expression('115530.31 * (((B3 * B4)/B2) ** 2.38)', {
+                            'B3': img.select('B3'), 'B4': img.select('B4'), 'B2': img.select('B2')
+                        }).rename('cyano')
+                        return cyano.copyProperties(img, ['system:time_start'])
+                    
+                    final_col = processed_col.map(calc_cyano)
+                    result_layer = final_col.mean().clip(roi)
+                    viz_params = {'min': 0, 'max': 200, 'palette': ['blue', 'teal', 'green', 'yellow', 'red']}
+                    layer_name = "Cyanobacteria Index"
+
+                elif "Chlorophyll" in p['param']:
+                    # Chl-a: 4.26 * ((B3 / B1) ** 3.94)
+                    def calc_chl(img):
+                        chl = img.expression('4.26 * ((B3 / B1) ** 3.94)', {
+                            'B3': img.select('B3'), 'B1': img.select('B1')
+                        }).rename('chl')
+                        return chl.copyProperties(img, ['system:time_start'])
+                    
+                    final_col = processed_col.map(calc_chl)
+                    result_layer = final_col.median().clip(roi)
+                    viz_params = {'min': 0, 'max': 20, 'palette': ['navy', 'blue', 'cyan', 'lime', 'yellow']}
+                    layer_name = "Chlorophyll-a (mg/m3)"
+
+                elif "CDOM" in p['param']:
+                    # CDOM: 537 * exp(-2.93 * (B3/B4))
+                    def calc_cdom(img):
+                        cdom = img.expression('537 * exp(-2.93 * (B3/B4))', {
+                            'B3': img.select('B3'), 'B4': img.select('B4')
+                        }).rename('cdom')
+                        return cdom.copyProperties(img, ['system:time_start'])
+                    
+                    final_col = processed_col.map(calc_cdom)
+                    result_layer = final_col.median().clip(roi)
+                    viz_params = {'min': 0, 'max': 10, 'palette': ['black', 'blue', 'purple', 'orange']}
+                    layer_name = "CDOM (Organic Matter)"
+
+                # 4. VISUALIZATION
+                if result_layer:
+                    image_to_export = result_layer
+                    vis_export = viz_params
+                    m.addLayer(result_layer, viz_params, layer_name)
+                    m.add_colorbar(viz_params, label=layer_name)
+
+                    # 5. CHARTING
+                    with col_res:
+                        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+                        st.markdown(f'<div class="card-label">📈 TREND ANALYSIS</div>', unsafe_allow_html=True)
+                        try:
+                            # Aggregate time series
+                            ts_df = geemap.ee_to_pandas(
+                                final_col.aggregate_array('system:time_start').map(
+                                    lambda t: ee.Date(t).format('YYYY-MM-dd')
+                                )
+                            )
+                            # Simple reduction for chart
+                            # Note: geemap charts can be tricky in cloud. Using simple logic:
+                            def get_mean(img):
+                                date = ee.Date(img.get('system:time_start')).format('YYYY-MM-dd')
+                                val = img.reduceRegion(ee.Reducer.median(), roi, 30).values().get(0)
+                                return ee.Feature(None, {'date': date, 'value': val})
+                            
+                            fc = final_col.map(get_mean).filter(ee.Filter.notNull(['value']))
+                            data_list = fc.reduceColumns(ee.Reducer.toList(2), ['date', 'value']).get('list').getInfo()
+                            
+                            if data_list:
+                                df_chart = pd.DataFrame(data_list, columns=['Date', 'Value'])
+                                df_chart['Date'] = pd.to_datetime(df_chart['Date'])
+                                df_chart = df_chart.sort_values('Date')
+                                
+                                st.line_chart(df_chart, x='Date', y='Value')
+                                st.caption(f"Median {layer_name} over time")
+                            else:
+                                st.warning("No valid data points for chart (Cloudy/No Water).")
+
+                        except Exception as e:
+                            st.warning("Could not generate chart.")
+                        st.markdown('</div>', unsafe_allow_html=True)
+
+            except Exception as e:
+                st.error(f"Analysis Failed: {e}")
+
     # --- COMMON EXPORT TOOLS ---
     with col_res:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown('<div class="card-label">📥 EXPORTS</div>', unsafe_allow_html=True)
         
         if st.button("Save to Drive (GeoTIFF)"):
-            if mode == "📍 RWH Site Suitability": img = suitability
-            elif mode == "⚠️ Encroachment (S1 SAR)": img = image_to_export if image_to_export else ee.Image(0)
-            elif mode == "Flood Extent Mapping": img = image_to_export if image_to_export else ee.Image(0)
-            
-            ee.batch.Export.image.toDrive(
-                image=img, description=f"GeoSarovar_Export_{datetime.now().strftime('%Y%m%d')}",
-                scale=30, region=roi, folder='GeoSarovar_Exports'
-            ).start()
-            st.toast("Export started! Check Google Drive.")
+            if image_to_export:
+                desc = f"GeoSarovar_{mode.split(' ')[1]}_{datetime.now().strftime('%Y%m%d')}"
+                ee.batch.Export.image.toDrive(
+                    image=image_to_export, description=desc,
+                    scale=30, region=roi, folder='GeoSarovar_Exports'
+                ).start()
+                st.toast("Export started! Check Google Drive.")
+            else:
+                st.warning("No result to export.")
 
         st.markdown("---")
         report_title = st.text_input("Report Title", f"Analysis: {mode}")
         if st.button("Generate Map Image"):
             with st.spinner("Rendering..."):
-                img_rep = image_to_export if image_to_export else ee.Image(0)
-                if mode == "Flood Extent Mapping":
-                    vis_rep = {'min': 0, 'max': 1, 'palette': ['#0000FF']}
-                    is_categorical = True; class_names = ['Flood Extent']; cmap = None
-                elif mode == "⚠️ Encroachment (S1 SAR)": 
-                    vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
-                    is_categorical = True; class_names = ['Stable Water', 'Encroachment', 'New Water']; cmap = None
-                elif mode == "📍 RWH Site Suitability": 
-                    vis_rep = {'min': 0.3, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
-                    cmap = vis_rep['palette']; is_categorical = False; class_names = None
-                
-                buf = generate_static_map_display(img_rep, roi, vis_rep, report_title, cmap_colors=cmap, is_categorical=is_categorical, class_names=class_names)
-                if buf:
-                    st.download_button("Download JPG", buf, "GeoSarovar_Map.jpg", "image/jpeg", use_container_width=True)
+                if image_to_export:
+                    # Determine visualization type
+                    is_cat = False
+                    c_names = None
+                    cmap = None
+                    
+                    if mode == "Flood Extent Mapping":
+                        is_cat = True; c_names = ['Flood Extent']
+                    elif mode == "⚠️ Encroachment (S1 SAR)": 
+                        is_cat = True; c_names = ['Stable Water', 'Encroachment', 'New Water']
+                    elif 'palette' in vis_export:
+                        cmap = vis_export['palette']
+                    
+                    buf = generate_static_map_display(image_to_export, roi, vis_export, report_title, cmap_colors=cmap, is_categorical=is_cat, class_names=c_names)
+                    if buf:
+                        st.download_button("Download JPG", buf, "GeoSarovar_Map.jpg", "image/jpeg", use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col_map:
