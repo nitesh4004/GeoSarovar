@@ -10,7 +10,7 @@ import matplotlib.patches as mpatches
 import matplotlib.colors as mcolors
 import numpy as np
 from io import BytesIO
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 from datetime import datetime, timedelta
 import pandas as pd
 import folium 
@@ -37,7 +37,7 @@ st.markdown("""
         --bg-color: #ffffff;
         --accent-primary: #00204a;   
         --accent-secondary: #005792; 
-        --text-primary: #00204a;      
+        --text-primary: #00204a;       
     }
 
     .stApp { 
@@ -57,14 +57,6 @@ st.markdown("""
         border-right: 1px solid #d1d9e6;
     }
     
-    /* Module Selector Styling */
-    div.row-widget.stRadio > div {
-        background-color: #eef2f6;
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid #d1d9e6;
-    }
-
     /* Primary Buttons */
     div.stButton > button:first-child {
         background: var(--accent-primary);
@@ -143,17 +135,19 @@ st.markdown("""
 
 # --- 3. AUTHENTICATION ---
 try:
-    service_account = st.secrets["gcp_service_account"]["client_email"]
-    secret_dict = dict(st.secrets["gcp_service_account"])
-    key_data = json.dumps(secret_dict) 
-    credentials = ee.ServiceAccountCredentials(service_account, key_data=key_data)
-    ee.Initialize(credentials)
-except Exception:
-    try:
+    # Try getting secrets from Streamlit secrets
+    if "gcp_service_account" in st.secrets:
+        service_account = st.secrets["gcp_service_account"]["client_email"]
+        secret_dict = dict(st.secrets["gcp_service_account"])
+        key_data = json.dumps(secret_dict) 
+        credentials = ee.ServiceAccountCredentials(service_account, key_data=key_data)
+        ee.Initialize(credentials)
+    else:
+        # Fallback to standard flow (useful for local dev with gcloud installed)
         ee.Initialize()
-    except Exception as e:
-        st.error(f"⚠️ Authentication Error: {e}")
-        st.stop()
+except Exception as e:
+    st.error(f"⚠️ Authentication Error: {e}")
+    st.stop()
 
 # --- STATE MANAGEMENT ---
 if 'calculated' not in st.session_state: st.session_state['calculated'] = False
@@ -230,17 +224,14 @@ def calculate_area_by_class(image, region, scale):
         df["Area (ha)"] = df["Area (ha)"].round(2)
     return df
 
-# --- ADVANCED STATIC MAP GENERATOR (WITH BACKGROUND IMAGERY) ---
+# --- ADVANCED STATIC MAP GENERATOR ---
 def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
     try:
-        # 1. Geometry Prep
         if isinstance(roi, ee.Geometry):
             try:
                 roi_json = roi.getInfo() 
                 roi_bounds = roi.bounds().getInfo()['coordinates'][0]
-            except:
-                st.error("Error reading ROI geometry.")
-                return None
+            except: return None
         else:
             roi_json = roi
             roi_bounds = roi['coordinates'][0]
@@ -250,104 +241,52 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         min_lon, max_lon = min(lons), max(lons)
         min_lat, max_lat = min(lats), max(lats)
         
-        mid_lat = (min_lat + max_lat) / 2
         width_deg = max_lon - min_lon
         height_deg = max_lat - min_lat
         if height_deg == 0: height_deg = 0.001
         
-        aspect_ratio = (width_deg * np.cos(np.radians(mid_lat))) / height_deg
+        aspect_ratio = (width_deg * np.cos(np.radians((min_lat + max_lat) / 2))) / height_deg
         fig_width = 12 
         fig_height = fig_width / aspect_ratio
         if fig_height > 20: fig_height = 20
         if fig_height < 4: fig_height = 4
 
-        # 2. Prepare Background Imagery (Workaround for Google Maps Tiles)
-        # We fetch a Sentinel-2 Cloud-Free Mosaic to act as the background
+        # Background Imagery (Sentinel-2 Cloud Free)
         s2_background = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")\
-            .filterBounds(roi)\
-            .filterDate('2023-01-01', '2023-12-31')\
+            .filterBounds(roi).filterDate('2023-01-01', '2023-12-31')\
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))\
-            .median()\
-            .visualize(min=0, max=3000, bands=['B4', 'B3', 'B2'])
+            .median().visualize(min=0, max=3000, bands=['B4', 'B3', 'B2'])
         
-        # 3. Prepare Analysis Layer
         if 'palette' in vis_params or 'min' in vis_params:
             analysis_vis = image.visualize(**vis_params)
         else:
             analysis_vis = image 
             
-        # 4. Blend: Background -> Analysis
         final_image = s2_background.blend(analysis_vis)
 
-        # 5. Request Thumbnail
         thumb_url = final_image.getThumbURL({
-            'region': roi_json, 
-            'dimensions': 1000, 
-            'format': 'png', 
-            'crs': 'EPSG:4326'
+            'region': roi_json, 'dimensions': 1000, 'format': 'png', 'crs': 'EPSG:4326'
         })
         
         response = requests.get(thumb_url, timeout=120)
-        
-        if response.status_code != 200:
-            st.error(f"GEE Server Error ({response.status_code}): {response.text}")
-            return None
+        if response.status_code != 200: return None
             
-        content_type = response.headers.get('content-type', '')
-        if 'image' not in content_type:
-            st.error(f"GEE Error: {response.text}")
-            return None
-
         img_pil = Image.open(BytesIO(response.content))
         
-        # 6. Plotting
         fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300, facecolor='#ffffff')
-        ax.set_facecolor('#ffffff')
         extent = [min_lon, max_lon, min_lat, max_lat]
-        im = ax.imshow(img_pil, extent=extent, aspect='auto')
+        ax.imshow(img_pil, extent=extent, aspect='auto')
         ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#00204a')
         
-        ax.tick_params(colors='black', labelcolor='black', labelsize=10)
-        ax.grid(color='white', linestyle='--', linewidth=0.5, alpha=0.3) # Lighter grid for imagery
-        for spine in ax.spines.values():
-            spine.set_edgecolor('black')
-            spine.set_linewidth(1)
+        # Grid and Ticks
+        ax.tick_params(colors='black', labelsize=10)
+        for spine in ax.spines.values(): spine.set_edgecolor('black')
         
-        ax.annotate('N', xy=(0.97, 0.95), xytext=(0.97, 0.88),
-                    xycoords='axes fraction', textcoords='axes fraction',
-                    arrowprops=dict(facecolor='white', edgecolor='black', width=4, headwidth=12, headlength=10),
-                    ha='center', va='center', fontsize=16, fontweight='bold', color='white')
-
-        try:
-            center_lat = (min_lat + max_lat) / 2
-            met_per_deg_lon = 111320 * np.cos(np.radians(center_lat))
-            width_met = width_deg * met_per_deg_lon
-            target_len_met = width_met / 5
-            order = 10 ** np.floor(np.log10(target_len_met))
-            nice_len_met = round(target_len_met / order) * order
-            nice_len_deg = nice_len_met / met_per_deg_lon
-            
-            pad_x = width_deg * 0.05
-            pad_y = height_deg * 0.05
-            start_x = max_lon - pad_x - nice_len_deg
-            start_y = min_lat + pad_y
-            bar_height = height_deg * 0.015
-            
-            rect = mpatches.Rectangle((start_x, start_y), nice_len_deg, bar_height, linewidth=1, edgecolor='black', facecolor='white')
-            ax.add_patch(rect)
-            label = f"{int(nice_len_met/1000)} km" if nice_len_met >= 1000 else f"{int(nice_len_met)} m"
-            ax.text(start_x + nice_len_deg/2, start_y + bar_height + (height_deg*0.01), label, color='black', ha='center', va='bottom', fontsize=12, fontweight='bold')
-        except: pass
-        
+        # Legend Logic
         if is_categorical and class_names and 'palette' in vis_params:
-            patches = []
-            for name, color in zip(class_names, vis_params['palette']):
-                patches.append(mpatches.Patch(color=color, label=name))
-            legend = ax.legend(handles=patches, loc='upper center', bbox_to_anchor=(0.5, -0.08), frameon=False, title="Legend", ncol=min(len(class_names), 4))
-            plt.setp(legend.get_title(), color='#00204a', fontweight='bold', fontsize=12)
-            for text in legend.get_texts():
-                text.set_color("black")
-                text.set_fontsize(10)
+            patches = [mpatches.Patch(color=c, label=n) for n, c in zip(class_names, vis_params['palette'])]
+            legend = ax.legend(handles=patches, loc='upper center', bbox_to_anchor=(0.5, -0.08), 
+                             frameon=False, ncol=min(len(class_names), 4))
         elif cmap_colors and 'min' in vis_params:
             cmap = mcolors.LinearSegmentedColormap.from_list("custom", cmap_colors)
             norm = mcolors.Normalize(vmin=vis_params['min'], vmax=vis_params['max'])
@@ -355,18 +294,14 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
             sm.set_array([])
             cax = fig.add_axes([0.92, 0.15, 0.02, 0.7]) 
             cbar = plt.colorbar(sm, cax=cax)
-            cbar.ax.yaxis.set_tick_params(color='black')
             cbar.set_label('Index Value', color='black', fontsize=12)
-            plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='black', fontsize=10)
         
         buf = BytesIO()
         plt.savefig(buf, format='jpg', bbox_inches='tight', facecolor='#ffffff')
         buf.seek(0)
         plt.close(fig)
         return buf
-    except Exception as e:
-        st.error(f"Map Gen Error: {e}")
-        return None
+    except: return None
 
 # --- 5. SIDEBAR ---
 with st.sidebar:
@@ -424,15 +359,23 @@ with st.sidebar:
     
     params = {}
     if app_mode == "📍 RWH Site Suitability":
-        st.markdown("### 3. Suitability Weights")
-        w_rain = st.slider("Rainfall %", 0, 100, 30)
-        w_slope = st.slider("Slope %", 0, 100, 20)
-        w_lulc = st.slider("Land Cover %", 0, 100, 30)
-        w_soil = st.slider("Soil %", 0, 100, 20)
+        st.markdown("### 3. Criteria Weights")
+        st.info("MCDA - Multi-Criteria Decision Analysis")
+        w_rain = st.slider("Precipitation Potential", 0, 100, 20)
+        w_slope = st.slider("Terrain & Drainage (TWI)", 0, 100, 40, help="Combines Slope and Topographic Wetness")
+        w_lulc = st.slider("Land Use Availability", 0, 100, 20)
+        w_soil = st.slider("Soil Retention (Clay)", 0, 100, 20)
+        
+        total_w = w_rain + w_slope + w_lulc + w_soil
+        st.markdown(f"**Total Weight: {total_w}** (Normalized automatically)")
+
         st.markdown("### 4. Period")
         start = st.date_input("From", datetime.now()-timedelta(365*5))
         end = st.date_input("To", datetime.now())
-        params = {'w_rain': w_rain/100, 'w_slope': w_slope/100, 'w_lulc': w_lulc/100, 'w_soil': w_soil/100, 'start': start.strftime("%Y-%m-%d"), 'end': end.strftime("%Y-%m-%d")}
+        params = {
+            'w_rain': w_rain, 'w_slope': w_slope, 'w_lulc': w_lulc, 'w_soil': w_soil, 
+            'start': start.strftime("%Y-%m-%d"), 'end': end.strftime("%Y-%m-%d"), 'total': total_w
+        }
 
     elif app_mode == "⚠️ Encroachment (S1 SAR)":
         st.markdown("### 3. Comparison Dates")
@@ -483,7 +426,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Helper for Safe Map Loading - UPDATED: FORCE HYBRID MODE
+# Helper for Safe Map Loading
 def get_safe_map(height=500):
     m = geemap.Map(height=height, basemap="HYBRID")
     return m
@@ -506,48 +449,114 @@ else:
     image_to_export = None 
 
     # ==========================================
-    # LOGIC A: RWH SITE SUITABILITY
+    # LOGIC A: RWH SITE SUITABILITY (IMPROVED)
     # ==========================================
     if mode == "📍 RWH Site Suitability":
-        with st.spinner("Processing RWH Suitability..."):
-            rain = ee.ImageCollection("UCSB-CHG/CHIRPS/PENTAD").filterDate(p['start'], p['end']).select('precipitation').mean().clip(roi)
-            rain_n = rain.clamp(50, 800).unitScale(50, 800)
-            dem = ee.Image("NASA/NASADEM_HGT/001").select('elevation')
-            slope = ee.Terrain.slope(dem).clip(roi)
-            slope_n = ee.Image(1).subtract(slope.clamp(0, 30).unitScale(0, 30))
+        with st.spinner("Calculating Hydrological Suitability..."):
+            
+            # --- 1. DATA ACQUISITION & NORMALIZATION ---
+            
+            # A. Precipitation (CHIRPS)
+            rain = ee.ImageCollection("UCSB-CHG/CHIRPS/PENTAD")\
+                .filterDate(p['start'], p['end']).select('precipitation').mean().clip(roi)
+            # Normalize rain min-max within ROI for relative difference
+            min_max_rain = rain.reduceRegion(ee.Reducer.minMax(), roi, 1000).getInfo()
+            r_min = min_max_rain.get('precipitation_min', 0)
+            r_max = min_max_rain.get('precipitation_max', 100)
+            rain_n = rain.unitScale(r_min, r_max)
+
+            # B. Topography (Slope & TWI)
+            dem = ee.Image("NASA/NASADEM_HGT/001").select('elevation').clip(roi)
+            slope = ee.Terrain.slope(dem)
+            
+            # Calculate TWI (Topographic Wetness Index) for Flow Accumulation
+            # Using HydroSHEDS Upstream Area as proxy for Flow Accumulation to reduce noise
+            flow_acc = ee.Image("WWF/HydroSHEDS/15ACC").select('b1').clip(roi)
+            # TWI formula approx: ln(a / tan(b))
+            twi = flow_acc.log().subtract(slope.multiply(0.01745).tan().log()).rename('twi')
+            
+            # Normalize TWI (Higher is better for collection)
+            twi_n = twi.unitScale(2, 12).clamp(0, 1) # Clamp outliers
+            
+            # Normalize Slope (Lower is generally better, but not 0)
+            # Ideal slope 1-5%. > 20% is bad.
+            slope_n = ee.Image(1).subtract(slope.clamp(0, 25).unitScale(0, 25))
+
+            # Combined Terrain Score (50% TWI, 50% Slope)
+            terrain_score = twi_n.add(slope_n).divide(2)
+
+            # C. LULC (ESA WorldCover)
             lulc = ee.Image("ESA/WorldCover/v100/2020").select('Map').clip(roi)
-            lulc_score = lulc.remap([10, 20, 30, 40, 50, 60, 80], [0.6, 0.8, 0.8, 0.7, 0.0, 1.0, 0.0]).rename('lulc')
+            # Remap: Ag(40)/Grass(30)/Scrub(20) = High. Forest(10) = Med. Urban(50)/Water(80) = Mask.
+            lulc_score = lulc.remap(
+                [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100], 
+                [0.5, 0.8, 0.9, 1.0, 0.0, 0.6, 0.1, 0.0, 0.1, 0.1, 0.1]
+            ).rename('lulc_score')
+            
+            # Strict Mask for exclusion (Urban & Water)
+            exclusion_mask = lulc.neq(50).And(lulc.neq(80)).And(slope.lt(20))
+
+            # D. Soil (Clay Content -> Retention)
             try:
                 soil = ee.Image("OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02").select('b0').mean().clip(roi)
-                soil_n = soil.clamp(0, 50).unitScale(0, 50)
-            except: soil_n = ee.Image(0.5).clip(roi)
-            
-            suitability = (rain_n.multiply(p['w_rain'])).add(slope_n.multiply(p['w_slope'])).add(lulc_score.multiply(p['w_lulc'])).add(soil_n.multiply(p['w_soil']))
-            vis = {'min': 0, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
-            m.addLayer(suitability, vis, 'Suitability Index')
-            m.add_colorbar(vis, label="RWH Potential")
-            image_to_export = suitability
+                soil_n = soil.unitScale(0, 60) # Normalize clay 0-60%
+            except:
+                soil_n = ee.Image(0.5).clip(roi)
 
+            # --- 2. WEIGHTED OVERLAY (MCDA) ---
+            # Avoid division by zero
+            tot = p['total'] if p['total'] > 0 else 1
+            
+            suitability = (
+                rain_n.multiply(p['w_rain']/tot)
+                .add(terrain_score.multiply(p['w_slope']/tot))
+                .add(lulc_score.multiply(p['w_lulc']/tot))
+                .add(soil_n.multiply(p['w_soil']/tot))
+            )
+            
+            # Apply Masks
+            final_suitability = suitability.updateMask(exclusion_mask).clip(roi)
+            
+            # Visualization
+            vis = {'min': 0.3, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
+            
+            m.addLayer(dem, {'min':0, 'max':1000, 'palette':['black','white']}, 'DEM (Hidden)', False)
+            m.addLayer(final_suitability, vis, 'RWH Suitability Index')
+            m.add_colorbar(vis, label="RWH Potential (MCDA Score)")
+            
+            image_to_export = final_suitability
+
+            # Find Peak Suitability Points (Potential Check Dams)
             try:
-                max_val = suitability.reduceRegion(ee.Reducer.max(), roi, 30, maxPixels=1e9).get('constant') 
-                if max_val:
-                    best_geom = suitability.eq(ee.Number(max_val)).reduceToVectors(geometry=roi, scale=30, geometryType='centroid', maxPixels=1e9)
-                    if best_geom.size().getInfo() > 0:
-                        pt = best_geom.first().geometry().coordinates().getInfo()
-                        folium.Marker([pt[1], pt[0]], popup="Best Site", icon=folium.Icon(color='green', icon='star')).add_to(m)
+                # Find local maxima in highly suitable areas (>0.7)
+                high_suit = final_suitability.gt(0.75)
+                vectors = high_suit.reduceToVectors(
+                    geometry=roi, scale=100, geometryType='centroid', 
+                    eightConnected=False, maxPixels=1e8
+                )
+                # Limit to top 5 points to avoid clutter
+                m.addLayer(vectors, {'color': 'blue'}, 'Suggested Locations')
             except: pass
 
             with col_res:
                 st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-                st.markdown('<div class="card-label">📊 AREA STATS</div>', unsafe_allow_html=True)
-                classes = ee.Image(0).where(suitability.lt(0.2), 1).where(suitability.gte(0.2).And(suitability.lt(0.4)), 2)\
-                    .where(suitability.gte(0.4).And(suitability.lt(0.6)), 3).where(suitability.gte(0.6).And(suitability.lt(0.8)), 4)\
-                    .where(suitability.gte(0.8), 5).clip(roi)
+                st.markdown('<div class="card-label">📊 CLASSIFICATION</div>', unsafe_allow_html=True)
+                
+                # Classify 1-5
+                classes = ee.Image(0).where(final_suitability.lt(0.3), 1)\
+                    .where(final_suitability.gte(0.3).And(final_suitability.lt(0.5)), 2)\
+                    .where(final_suitability.gte(0.5).And(final_suitability.lt(0.65)), 3)\
+                    .where(final_suitability.gte(0.65).And(final_suitability.lt(0.8)), 4)\
+                    .where(final_suitability.gte(0.8), 5).updateMask(exclusion_mask).clip(roi)
+                
                 df = calculate_area_by_class(classes, roi, 30)
-                name_map = {"Class 1": "Unsuitable", "Class 2": "Low", "Class 3": "Moderate", "Class 4": "Good", "Class 5": "Excellent"}
+                name_map = {"Class 1": "Very Low", "Class 2": "Low", "Class 3": "Moderate", "Class 4": "High", "Class 5": "Optimal"}
                 if not df.empty:
                     df['Class'] = df['Class'].map(name_map).fillna(df['Class'])
                     st.dataframe(df, hide_index=True, use_container_width=True)
+                else:
+                    st.warning("No suitable areas found within thresholds.")
+                st.markdown("</div>", unsafe_allow_html=True)
 
     # ==========================================
     # LOGIC B: ENCROACHMENT DETECTION (SENTINEL-1)
@@ -567,13 +576,9 @@ else:
 
             def process_water_mask(col, roi_geom):
                 if col.size().getInfo() == 0: return None, "N/A"
-                # Get Date of first image
                 date_found = ee.Date(col.first().get('system:time_start')).format('YYYY-MM-dd').getInfo()
-                # Speckle Filter
                 def speckle_filter(img): return img.select('VV').focal_median(50, 'circle', 'meters').rename('VV_smoothed')
-                # Mosaic
                 mosaic = col.map(speckle_filter).min().clip(roi_geom)
-                # Threshold
                 water_mask = mosaic.lt(-16).selfMask()
                 return water_mask, date_found
 
@@ -624,7 +629,6 @@ else:
                         if st.button("Create Timelapse"):
                             with st.spinner("Generating GIF..."):
                                 try:
-                                    # Reuse collection logic for timelapse
                                     s1_tl = get_sar_collection(p['d1_start'], p['d2_end'], roi, p['orbit']).select('VV')
                                     video_args = {'dimensions': 600, 'region': roi, 'framesPerSecond': 5, 'min': -25, 'max': -5, 'palette': ['black', 'blue', 'white']}
                                     monthly = geemap.create_timeseries(s1_tl, p['d1_start'], p['d2_end'], frequency='year', reducer='median')
@@ -658,7 +662,6 @@ else:
                 after_col = collection.filterDate(p['post_start'], p['post_end'])
 
                 if before_col.size().getInfo() > 0 and after_col.size().getInfo() > 0:
-                    # Capture Dates
                     date_pre = ee.Date(before_col.first().get('system:time_start')).format('YYYY-MM-dd').getInfo()
                     date_post = ee.Date(after_col.first().get('system:time_start')).format('YYYY-MM-dd').getInfo()
 
@@ -672,25 +675,17 @@ else:
                     difference = after_f.divide(before_f)
                     difference_binary = difference.gt(p['threshold'])
                     
-                    # --- FIXED PERMANENT WATER MASKING (JRC V1.4) ---
-                    # Use Occurrence (Historical Water Frequency)
                     gsw = ee.Image("JRC/GSW1_4/GlobalSurfaceWater")
                     occurrence = gsw.select('occurrence')
-                    # Mask pixels that are water > 30% of the time (Existing Lakes/Rivers)
                     permanent_water_mask = occurrence.gt(30)
                     
-                    # Only keep flood if it's NOT permanent water
                     flooded = difference_binary.updateMask(permanent_water_mask.Not())
                     
-                    # Slope Masking
                     dem = ee.Image('WWF/HydroSHEDS/03VFDEM')
                     slope = ee.Algorithms.Terrain(dem).select('slope')
                     flooded = flooded.updateMask(slope.lt(5))
                     
-                    # Noise Removal
                     flooded = flooded.updateMask(flooded.connectedPixelCount().gte(8))
-                    
-                    # Final selfMask so 0s are transparent
                     flooded = flooded.selfMask()
                     
                     image_to_export = flooded
@@ -740,22 +735,15 @@ else:
         if st.button("Generate Map Image"):
             with st.spinner("Rendering..."):
                 img_rep = image_to_export if image_to_export else ee.Image(0)
-                # FIX: Add # to color codes for Matplotlib
                 if mode == "Flood Extent Mapping":
                     vis_rep = {'min': 0, 'max': 1, 'palette': ['#0000FF']}
-                    is_categorical = True
-                    class_names = ['Flood Extent']
-                    cmap = None
+                    is_categorical = True; class_names = ['Flood Extent']; cmap = None
                 elif mode == "⚠️ Encroachment (S1 SAR)": 
-                    vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']} # These are named colors, OK without #
-                    is_categorical = True
-                    class_names = ['Stable Water', 'Encroachment', 'New Water']
-                    cmap = None
+                    vis_rep = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
+                    is_categorical = True; class_names = ['Stable Water', 'Encroachment', 'New Water']; cmap = None
                 elif mode == "📍 RWH Site Suitability": 
-                    vis_rep = {'min': 0, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
-                    cmap = vis_rep['palette']
-                    is_categorical = False
-                    class_names = None
+                    vis_rep = {'min': 0.3, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
+                    cmap = vis_rep['palette']; is_categorical = False; class_names = None
                 
                 buf = generate_static_map_display(img_rep, roi, vis_rep, report_title, cmap_colors=cmap, is_categorical=is_categorical, class_names=class_names)
                 if buf:
