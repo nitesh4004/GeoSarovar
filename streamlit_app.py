@@ -231,10 +231,11 @@ def calculate_area_by_class(image, region, scale):
         df["Area (ha)"] = df["Area (ha)"].round(2)
     return df
 
-# --- FIXED MAP GENERATOR ---
+# --- FIXED MAP GENERATOR (SAFE MODE) ---
 def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
     try:
         if isinstance(roi, ee.Geometry):
+            # Safe simplification to prevent timeouts
             roi_simple = roi.simplify(maxError=50) 
             roi_json = roi_simple.getInfo()
             roi_bounds = roi_simple.bounds().getInfo()['coordinates'][0]
@@ -251,7 +252,7 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         if height_deg == 0: height_deg = 0.001
         
         aspect_ratio = (width_deg * np.cos(np.radians((min_lat + max_lat) / 2))) / height_deg
-        fig_width = 10
+        fig_width = 10 
         fig_height = fig_width / aspect_ratio
         if fig_height > 15: fig_height = 15
         if fig_height < 4: fig_height = 4
@@ -268,6 +269,7 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
             
         final_image = s2_background.blend(analysis_vis)
 
+        # Reduced resolution (800px) to ensure speed
         thumb_url = final_image.getThumbURL({
             'region': roi_json, 'dimensions': 800, 'format': 'png', 'crs': 'EPSG:4326'
         })
@@ -503,27 +505,40 @@ else:
             m.addLayer(final_suitability, vis, 'RWH Suitability')
             m.add_colorbar(vis, label="Score")
 
-            # --- SMART POINTERS FOR BEST SITES ---
+            # --- IMPROVED: PEAK DETECTION FOR FLAT TERRAINS ---
             try:
-                # 1. Dynamic Threshold: Get the 99th percentile of suitability
-                percentile_val = final_suitability.reduceRegion(
-                    reducer=ee.Reducer.percentile([90]), 
-                    geometry=roi, scale=100, maxPixels=1e9
-                ).get('constant')
+                # 1. Smooth the map to remove noise and create clear "hills" of suitability
+                smooth_map = final_suitability.focal_mean(300, 'circle', 'meters')
                 
-                # 2. Extract Top 1% areas
-                top_sites = final_suitability.gt(ee.Number(percentile_val)).selfMask()
+                # 2. Find Local Maxima (Pixels that are higher than their neighbors)
+                local_max = smooth_map.eq(smooth_map.focal_max(300, 'circle', 'meters'))
                 
-                # 3. Vectorize these areas
-                vectors = top_sites.reduceToVectors(
+                # 3. Filter: Keep only peaks that are actually suitable (>0.6 score)
+                best_peaks = local_max.And(smooth_map.gt(0.6)).selfMask()
+                
+                # 4. Convert these specific pixels to points
+                vectors = best_peaks.reduceToVectors(
                     geometry=roi, scale=100, geometryType='centroid', 
-                    eightConnected=False, maxPixels=1e8
+                    eightConnected=True, maxPixels=1e8, labelProperty='score'
                 )
                 
-                # 4. Add to Map as distinct cyan markers
-                m.addLayer(vectors, {'color': 'cyan'}, '📍 Top Potential Sites')
-            except:
-                pass
+                site_count = vectors.size().getInfo()
+                
+                if site_count > 0:
+                    # Style: Bright Cyan Points with black outline
+                    m.addLayer(vectors.style(**{'color': '00FFFF', 'pointSize': 8, 'width': 2}), {}, '📍 Optimal Site Centers')
+                    st.toast(f"Identified {site_count} specific site centers.", icon="📍")
+                    
+                    # Optional: Add a raster glow for visibility
+                    m.addLayer(best_peaks.focal_max(100, 'circle', 'meters'), {'palette':['cyan'], 'opacity': 0.5}, 'Site Glow', False)
+                else:
+                    st.warning("Region is too uniform. Try lowering the 'Slope' weight in sidebar.")
+                    
+            except Exception as e:
+                # Fallback: Just show the raster if vectorizing fails
+                st.warning(f"Note: Could not generate vector points ({e}). Showing top zones instead.")
+                top_tier = final_suitability.gte(final_suitability.reduceRegion(ee.Reducer.percentile([95]), roi, 100).get('constant'))
+                m.addLayer(top_tier.selfMask(), {'palette':['cyan']}, 'Top 5% Zones (Raster)')
 
             # --- INPUT DATA AVAILABILITY CHECK ---
             with col_res:
@@ -765,5 +780,3 @@ else:
 
     with col_map:
         m.to_streamlit()
-
-
