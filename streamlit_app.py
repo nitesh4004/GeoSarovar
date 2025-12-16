@@ -234,9 +234,7 @@ def calculate_area_by_class(image, region, scale):
 # --- FIXED MAP GENERATOR ---
 def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
     try:
-        # Simplify geometry to prevent Request Payload Too Large errors
         if isinstance(roi, ee.Geometry):
-            # Safe simplification
             roi_simple = roi.simplify(maxError=50) 
             roi_json = roi_simple.getInfo()
             roi_bounds = roi_simple.bounds().getInfo()['coordinates'][0]
@@ -253,12 +251,11 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         if height_deg == 0: height_deg = 0.001
         
         aspect_ratio = (width_deg * np.cos(np.radians((min_lat + max_lat) / 2))) / height_deg
-        fig_width = 10  # Slightly smaller to prevent timeout
+        fig_width = 10
         fig_height = fig_width / aspect_ratio
         if fig_height > 15: fig_height = 15
         if fig_height < 4: fig_height = 4
 
-        # Sentinel-2 Background
         s2_background = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")\
             .filterBounds(roi_simple).filterDate('2023-01-01', '2023-12-31')\
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))\
@@ -271,12 +268,11 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
             
         final_image = s2_background.blend(analysis_vis)
 
-        # Get URL with reduced dimensions (800px)
         thumb_url = final_image.getThumbURL({
             'region': roi_json, 'dimensions': 800, 'format': 'png', 'crs': 'EPSG:4326'
         })
         
-        response = requests.get(thumb_url, timeout=30) # 30s timeout
+        response = requests.get(thumb_url, timeout=30)
         if response.status_code != 200: 
             st.error(f"GEE Server Error: {response.status_code}")
             return None
@@ -506,6 +502,40 @@ else:
             vis = {'min': 0.3, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
             m.addLayer(final_suitability, vis, 'RWH Suitability')
             m.add_colorbar(vis, label="Score")
+
+            # --- POINTER FOR BEST SITE ---
+            try:
+                # 1. Find the highest score
+                max_val = final_suitability.reduceRegion(
+                    reducer=ee.Reducer.max(), 
+                    geometry=roi, 
+                    scale=30, 
+                    maxPixels=1e9, 
+                    bestEffort=True
+                ).values().get(0)
+                
+                # 2. Get location of best pixels
+                best_pixels = final_suitability.eq(ee.Number(max_val)).selfMask()
+                
+                # 3. Convert to vector point
+                vectors = best_pixels.reduceToVectors(
+                    geometry=roi, 
+                    scale=30, 
+                    geometryType='centroid', 
+                    maxPixels=1e8, 
+                    bestEffort=True
+                )
+                
+                # 4. Add Marker
+                best_loc = vectors.first().geometry().coordinates().getInfo() # [Lon, Lat]
+                if best_loc:
+                    folium.Marker(
+                        location=[best_loc[1], best_loc[0]],
+                        popup=f"★ Best Site (Score: {float(max_val.getInfo()):.2f})",
+                        icon=folium.Icon(color='red', icon='star', prefix='fa')
+                    ).add_to(m)
+                    st.toast(f"Best site found at: {best_loc[1]:.4f}, {best_loc[0]:.4f}")
+            except: pass
 
             # --- INPUT DATA AVAILABILITY CHECK ---
             with col_res:
