@@ -507,7 +507,7 @@ else:
             try:
                 # 1. Dynamic Threshold: Get the 99th percentile of suitability
                 percentile_val = final_suitability.reduceRegion(
-                    reducer=ee.Reducer.percentile([99]), 
+                    reducer=ee.Reducer.percentile([95]), 
                     geometry=roi, scale=100, maxPixels=1e9
                 ).get('constant')
                 
@@ -765,3 +765,4 @@ else:
 
     with col_map:
         m.to_streamlit()
+
