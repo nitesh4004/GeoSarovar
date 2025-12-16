@@ -722,23 +722,24 @@ else:
                 st.error(f"Error: {e}")
 
     # ==========================================
-    # LOGIC D: WATER QUALITY (Sentinel-2)
+    # LOGIC D: WATER QUALITY (Sentinel-2) [CORRECTED]
     # ==========================================
     elif mode == "🧪 Water Quality":
-        with st.spinner(f"Computing {p['param']}..."):
+        with st.spinner(f"Computing {p['param']} (Scientific Mode)..."):
             try:
-                # 1. PRE-PROCESSING FUNCTION
+                # 1. PRE-PROCESSING FUNCTION (Improved Masking)
                 def mask_clouds_and_water(img):
                     # Cloud Masking (using S2_CLOUD_PROBABILITY)
                     cloud_prob = ee.Image(img.get('cloud_mask')).select('probability')
                     is_cloud = cloud_prob.gt(p['cloud'])
                     
-                    # Scale Bands
+                    # Scale Bands to Reflectance (0 to 1)
                     bands = img.select(['B.*']).multiply(0.0001)
                     
-                    # Water Masking (NDWI > 0.1)
+                    # Water Masking (NDWI > 0.0) 
+                    # Lowered threshold slightly to catch turbid water, but excluded negative values
                     ndwi = bands.normalizedDifference(['B3', 'B8']).rename('ndwi')
-                    is_water = ndwi.gt(0.1)
+                    is_water = ndwi.gt(0.0)
                     
                     # Return masked image with scaled bands
                     return bands.updateMask(is_cloud.Not()).updateMask(is_water).copyProperties(img, ['system:time_start'])
@@ -747,80 +748,97 @@ else:
                 s2_sr = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED").filterDate(p['start'], p['end']).filterBounds(roi)
                 s2_cloud = ee.ImageCollection("COPERNICUS/S2_CLOUD_PROBABILITY").filterDate(p['start'], p['end']).filterBounds(roi)
                 
-                # Join collections for cloud masking
+                # Join collections
                 s2_joined = ee.Join.saveFirst('cloud_mask').apply(
                     primary=s2_sr, secondary=s2_cloud,
                     condition=ee.Filter.equals(leftField='system:index', rightField='system:index')
                 )
                 
-                # 3. COMPUTE SELECTED INDEX
                 processed_col = ee.ImageCollection(s2_joined).map(mask_clouds_and_water)
                 
+                # 3. COMPUTE SCIENTIFIC INDICES
                 viz_params = {}
                 result_layer = None
                 layer_name = ""
+                
+                # Helper to clamp values for better visualization
+                def clamp(img, min_v, max_v):
+                    return img.max(min_v).min(max_v)
 
                 if "Turbidity" in p['param']:
-                    # NDTI: (Red - Green) / (Red + Green) -> (B4 - B3) / (B4 + B3)
+                    # Algorithm: NDTI (Normalized Difference Turbidity Index)
+                    # Robust for general turbidity visualization
+                    # Formula: (Red - Green) / (Red + Green)
                     def calc_ndti(img):
-                        return img.normalizedDifference(['B4', 'B3']).rename('ndti').copyProperties(img, ['system:time_start'])
+                        ndti = img.normalizedDifference(['B4', 'B3']).rename('value')
+                        return ndti.copyProperties(img, ['system:time_start'])
                     
                     final_col = processed_col.map(calc_ndti)
                     result_layer = final_col.mean().clip(roi)
-                    viz_params = {'min': -0.1, 'max': 0.2, 'palette': ['blue', 'green', 'yellow', 'orange', 'red']} # Low to High Turbidity
-                    layer_name = "Avg. Turbidity (NDTI)"
+                    # NDTI typically ranges -0.2 (Clear) to +0.2 (Very Turbid)
+                    viz_params = {'min': -0.15, 'max': 0.15, 'palette': ['0000ff', '00ffff', 'ffff00', 'ff0000']} 
+                    layer_name = "Turbidity Index (NDTI)"
 
                 elif "TSS" in p['param']:
-                    # TSS: B7 * (B5 / B2)
+                    # Algorithm: Nechad et al. (2010) Calibrated for Sentinel-2
+                    # Uses Red Band (B4) which is sensitive to suspended particles.
+                    # Simplified form: TSS = A * rho_red / (1 - rho_red / C)
+                    # Here we use a solid empirical power law for stability: TSS = 2950 * (B4^1.357)
                     def calc_tss(img):
-                        tss = img.expression('B7 * (B5 / B2)', {
-                            'B7': img.select('B7'), 'B5': img.select('B5'), 'B2': img.select('B2')
-                        }).rename('tss')
+                        # Using Red band (B4)
+                        tss = img.expression('2950 * (b4 ** 1.357)', {'b4': img.select('B4')}).rename('value')
                         return tss.copyProperties(img, ['system:time_start'])
                     
                     final_col = processed_col.map(calc_tss)
                     result_layer = final_col.median().clip(roi)
-                    viz_params = {'min': 0, 'max': 5, 'palette': ['blue', 'cyan', 'lime', 'yellow', 'red']}
-                    layer_name = "Total Suspended Solids"
+                    # TSS in mg/L approx
+                    viz_params = {'min': 0, 'max': 50, 'palette': ['0000ff', '00ffff', 'ffff00', 'ff0000', '5c0000']}
+                    layer_name = "TSS (Est. mg/L)"
 
                 elif "Cyanobacteria" in p['param']:
-                    # Cyano: 115530.31 * (((B3 * B4)/B2) ** 2.38)
+                    # Algorithm: Red-Edge/Red Ratio (2BDA)
+                    # Cyanobacteria blooms reflect strongly in Red-Edge (B5) vs Red (B4).
+                    # Formula: B5 / B4
                     def calc_cyano(img):
-                        cyano = img.expression('115530.31 * (((B3 * B4)/B2) ** 2.38)', {
-                            'B3': img.select('B3'), 'B4': img.select('B4'), 'B2': img.select('B2')
-                        }).rename('cyano')
+                        cyano = img.expression('b5 / b4', {
+                            'b5': img.select('B5'), 'b4': img.select('B4')
+                        }).rename('value')
                         return cyano.copyProperties(img, ['system:time_start'])
                     
                     final_col = processed_col.map(calc_cyano)
-                    result_layer = final_col.mean().clip(roi)
-                    viz_params = {'min': 0, 'max': 200, 'palette': ['blue', 'teal', 'green', 'yellow', 'red']}
-                    layer_name = "Cyanobacteria Index"
+                    result_layer = final_col.max().clip(roi) # Use MAX to find peak bloom events
+                    # Ratio > 1.0 indicates vegetation/bloom signal
+                    viz_params = {'min': 0.8, 'max': 1.5, 'palette': ['0000ff', '00ff00', 'ff0000']}
+                    layer_name = "Cyano Risk (Ratio > 1)"
 
                 elif "Chlorophyll" in p['param']:
-                    # Chl-a: 4.26 * ((B3 / B1) ** 3.94)
-                    def calc_chl(img):
-                        chl = img.expression('4.26 * ((B3 / B1) ** 3.94)', {
-                            'B3': img.select('B3'), 'B1': img.select('B1')
-                        }).rename('chl')
-                        return chl.copyProperties(img, ['system:time_start'])
+                    # Algorithm: NDCI (Normalized Difference Chlorophyll Index)
+                    # Standard for Sentinel-2 in turbid waters (Mishra & Mishra, 2012)
+                    # Formula: (B5 - B4) / (B5 + B4)
+                    def calc_ndci(img):
+                        ndci = img.normalizedDifference(['B5', 'B4']).rename('value')
+                        return ndci.copyProperties(img, ['system:time_start'])
                     
-                    final_col = processed_col.map(calc_chl)
-                    result_layer = final_col.median().clip(roi)
-                    viz_params = {'min': 0, 'max': 20, 'palette': ['navy', 'blue', 'cyan', 'lime', 'yellow']}
-                    layer_name = "Chlorophyll-a (mg/m3)"
+                    final_col = processed_col.map(calc_ndci)
+                    result_layer = final_col.mean().clip(roi)
+                    # NDCI ranges: <0 (Low Chl), 0-0.1 (Moderate), >0.1 (High/Bloom)
+                    viz_params = {'min': -0.1, 'max': 0.2, 'palette': ['0000ff', '00ffff', '00ff00', 'ff0000']}
+                    layer_name = "Chlorophyll-a (NDCI)"
 
                 elif "CDOM" in p['param']:
-                    # CDOM: 537 * exp(-2.93 * (B3/B4))
+                    # Algorithm: Green/Blue Ratio
+                    # CDOM absorbs Blue light strongly.
+                    # Formula: B3 / B2
                     def calc_cdom(img):
-                        cdom = img.expression('537 * exp(-2.93 * (B3/B4))', {
-                            'B3': img.select('B3'), 'B4': img.select('B4')
-                        }).rename('cdom')
+                        cdom = img.expression('b3 / b2', {
+                            'b3': img.select('B3'), 'b2': img.select('B2')
+                        }).rename('value')
                         return cdom.copyProperties(img, ['system:time_start'])
                     
                     final_col = processed_col.map(calc_cdom)
                     result_layer = final_col.median().clip(roi)
-                    viz_params = {'min': 0, 'max': 10, 'palette': ['black', 'blue', 'purple', 'orange']}
-                    layer_name = "CDOM (Organic Matter)"
+                    viz_params = {'min': 0.5, 'max': 2.0, 'palette': ['0000ff', 'yellow', 'brown']}
+                    layer_name = "CDOM Proxy (Green/Blue)"
 
                 # 4. VISUALIZATION
                 if result_layer:
@@ -834,34 +852,36 @@ else:
                         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
                         st.markdown(f'<div class="card-label">📈 TREND ANALYSIS</div>', unsafe_allow_html=True)
                         try:
-                            # Aggregate time series
-                            ts_df = geemap.ee_to_pandas(
-                                final_col.aggregate_array('system:time_start').map(
-                                    lambda t: ee.Date(t).format('YYYY-MM-dd')
-                                )
-                            )
-                            # Simple reduction for chart
-                            # Note: geemap charts can be tricky in cloud. Using simple logic:
-                            def get_mean(img):
+                            # Robust reducer: Median to ignore outliers/glint
+                            def get_stats(img):
                                 date = ee.Date(img.get('system:time_start')).format('YYYY-MM-dd')
-                                val = img.reduceRegion(ee.Reducer.median(), roi, 30).values().get(0)
+                                val = img.reduceRegion(
+                                    reducer=ee.Reducer.median(), 
+                                    geometry=roi, 
+                                    scale=20, 
+                                    maxPixels=1e9
+                                ).values().get(0)
                                 return ee.Feature(None, {'date': date, 'value': val})
                             
-                            fc = final_col.map(get_mean).filter(ee.Filter.notNull(['value']))
+                            fc = final_col.map(get_stats).filter(ee.Filter.notNull(['value']))
                             data_list = fc.reduceColumns(ee.Reducer.toList(2), ['date', 'value']).get('list').getInfo()
                             
                             if data_list:
                                 df_chart = pd.DataFrame(data_list, columns=['Date', 'Value'])
                                 df_chart['Date'] = pd.to_datetime(df_chart['Date'])
-                                df_chart = df_chart.sort_values('Date')
+                                df_chart = df_chart.sort_values('Date').dropna()
                                 
-                                st.line_chart(df_chart, x='Date', y='Value')
+                                st.area_chart(df_chart, x='Date', y='Value', color="#005792")
                                 st.caption(f"Median {layer_name} over time")
+                                
+                                # Export Data CSV
+                                csv = df_chart.to_csv(index=False).encode('utf-8')
+                                st.download_button("Download CSV", csv, "water_quality_ts.csv", "text/csv")
                             else:
-                                st.warning("No valid data points for chart (Cloudy/No Water).")
+                                st.warning("No clear water pixels found (Try reducing cloud threshold).")
 
                         except Exception as e:
-                            st.warning("Could not generate chart.")
+                            st.warning(f"Chart Error: {e}")
                         st.markdown('</div>', unsafe_allow_html=True)
 
             except Exception as e:
