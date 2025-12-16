@@ -471,7 +471,7 @@ else:
             try:
                 soil = ee.Image("OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02").select('b0').mean().clip(roi)
             except:
-                soil = ee.Image(20).clip(roi) # Default 20% clay
+                soil = ee.Image(20).clip(roi)
 
             # Normalization
             min_max_rain = rain.reduceRegion(ee.Reducer.minMax(), roi, 1000).getInfo()
@@ -503,46 +503,33 @@ else:
             m.addLayer(final_suitability, vis, 'RWH Suitability')
             m.add_colorbar(vis, label="Score")
 
-            # --- POINTER FOR BEST SITE ---
+            # --- SMART POINTERS FOR BEST SITES ---
             try:
-                # 1. Find the highest score
-                max_val = final_suitability.reduceRegion(
-                    reducer=ee.Reducer.max(), 
-                    geometry=roi, 
-                    scale=30, 
-                    maxPixels=1e9, 
-                    bestEffort=True
-                ).values().get(0)
+                # 1. Dynamic Threshold: Get the 99th percentile of suitability
+                percentile_val = final_suitability.reduceRegion(
+                    reducer=ee.Reducer.percentile([99]), 
+                    geometry=roi, scale=100, maxPixels=1e9
+                ).get('constant')
                 
-                # 2. Get location of best pixels
-                best_pixels = final_suitability.eq(ee.Number(max_val)).selfMask()
+                # 2. Extract Top 1% areas
+                top_sites = final_suitability.gt(ee.Number(percentile_val)).selfMask()
                 
-                # 3. Convert to vector point
-                vectors = best_pixels.reduceToVectors(
-                    geometry=roi, 
-                    scale=30, 
-                    geometryType='centroid', 
-                    maxPixels=1e8, 
-                    bestEffort=True
+                # 3. Vectorize these areas
+                vectors = top_sites.reduceToVectors(
+                    geometry=roi, scale=100, geometryType='centroid', 
+                    eightConnected=False, maxPixels=1e8
                 )
                 
-                # 4. Add Marker
-                best_loc = vectors.first().geometry().coordinates().getInfo() # [Lon, Lat]
-                if best_loc:
-                    folium.Marker(
-                        location=[best_loc[1], best_loc[0]],
-                        popup=f"★ Best Site (Score: {float(max_val.getInfo()):.2f})",
-                        icon=folium.Icon(color='red', icon='star', prefix='fa')
-                    ).add_to(m)
-                    st.toast(f"Best site found at: {best_loc[1]:.4f}, {best_loc[0]:.4f}")
-            except: pass
+                # 4. Add to Map as distinct cyan markers
+                m.addLayer(vectors, {'color': 'cyan'}, '📍 Top Potential Sites')
+            except:
+                pass
 
             # --- INPUT DATA AVAILABILITY CHECK ---
             with col_res:
                 st.markdown('<div class="glass-card">', unsafe_allow_html=True)
                 st.markdown('<div class="card-label">📉 INPUT DATA SUMMARY</div>', unsafe_allow_html=True)
                 
-                # Calculate means for the ROI
                 with st.spinner("Checking data availability..."):
                     try:
                         input_stats = ee.Image([
@@ -553,7 +540,7 @@ else:
                         ]).reduceRegion(
                             reducer=ee.Reducer.mean(), 
                             geometry=roi, 
-                            scale=200, # Approximate scale for speed
+                            scale=200, 
                             maxPixels=1e9
                         ).getInfo()
                         
