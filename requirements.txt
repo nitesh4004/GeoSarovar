@@ -30,4 +30,6 @@ pystac-client
 planetary-computer
 stackstac
 rioxarray
+localtileserver
+
 
