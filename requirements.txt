@@ -21,3 +21,8 @@ shapely
 streamlit
 streamlit-folium
 streamlit-option-menu
+torch
+leafmap
+segmentation-models-pytorch
+scipy
+scikit-image
