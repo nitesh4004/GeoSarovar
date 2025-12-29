@@ -810,57 +810,78 @@ else:
         vis_export = {}
 
         # ==========================================
-        # LOGIC A: RWH SITE SUITABILITY
+        # LOGIC A: RWH SITE SUITABILITY (UPDATED)
         # ==========================================
         if mode == "📍 RWH Site Suitability":
             with st.spinner("Calculating Hydrological Suitability..."):
                 
-                # --- 1. DATA ACQUISITION & NORMALIZATION ---
+                # --- 1. DATA ACQUISITION & ROBUST NORMALIZATION ---
                 
+                def normalize_dynamic(img, region):
+                    """Normalize image based on 2nd and 98th percentile within ROI."""
+                    stats = img.reduceRegion(
+                        reducer=ee.Reducer.percentile([2, 98]), 
+                        geometry=region, 
+                        scale=100, 
+                        maxPixels=1e9,
+                        bestEffort=True
+                    )
+                    
+                    # Get keys safely (in case band names differ)
+                    keys = stats.keys().getInfo()
+                    if not keys or len(keys) < 2: return img.unitScale(0, 1) # Fallback
+                    
+                    # Sort to ensure we get min (2%) and max (98%)
+                    vals = sorted([stats.get(k).getInfo() for k in keys])
+                    low, high = vals[0], vals[1]
+                    
+                    if low == high: return ee.Image(0.5)
+                    return img.unitScale(low, high).clamp(0, 1)
+
                 # A. Precipitation (CHIRPS)
                 rain = ee.ImageCollection("UCSB-CHG/CHIRPS/PENTAD")\
                     .filterDate(p['start'], p['end']).select('precipitation').mean().clip(roi)
-                # Normalize rain min-max within ROI for relative difference
-                min_max_rain = rain.reduceRegion(ee.Reducer.minMax(), roi, 1000).getInfo()
-                r_min = min_max_rain.get('precipitation_min', 0)
-                r_max = min_max_rain.get('precipitation_max', 100)
-                rain_n = rain.unitScale(r_min, r_max)
+                rain_n = normalize_dynamic(rain, roi)
 
                 # B. Topography (Slope & TWI)
                 dem = ee.Image("NASA/NASADEM_HGT/001").select('elevation').clip(roi)
                 slope = ee.Terrain.slope(dem)
                 
-                # Calculate TWI (Topographic Wetness Index) for Flow Accumulation
+                # Calculate TWI (Topographic Wetness Index)
+                # Use larger accumulation raster to avoid edge effects
                 flow_acc = ee.Image("WWF/HydroSHEDS/15ACC").select('b1').clip(roi)
-                # TWI formula approx: ln(a / tan(b))
-                twi = flow_acc.log().subtract(slope.multiply(0.01745).tan().log()).rename('twi')
                 
-                # Normalize TWI (Higher is better for collection)
-                twi_n = twi.unitScale(2, 12).clamp(0, 1) # Clamp outliers
+                # Fix: Avoid log(0) errors by adding epsilon
+                slope_rad = slope.multiply(0.01745).max(0.001) 
+                twi = flow_acc.add(1).log().subtract(slope_rad.tan().log()).rename('twi')
                 
-                # Normalize Slope (Lower is generally better, but not 0)
-                slope_n = ee.Image(1).subtract(slope.clamp(0, 25).unitScale(0, 25))
+                # Normalize TWI (Higher is better for accumulation)
+                twi_n = normalize_dynamic(twi, roi)
+                
+                # Normalize Slope (Lower is better for structure retention, so we invert)
+                # Using 0-30 degrees as reasonable range for standard normalization before inversion
+                slope_n = ee.Image(1).subtract(slope.clamp(0, 30).unitScale(0, 30))
 
-                # Combined Terrain Score (50% TWI, 50% Slope)
+                # Combined Terrain Score
                 terrain_score = twi_n.add(slope_n).divide(2)
 
                 # C. LULC (ESA WorldCover)
                 lulc = ee.Image("ESA/WorldCover/v100/2020").select('Map').clip(roi)
-                # Remap: Ag(40)/Grass(30)/Scrub(20) = High. Forest(10) = Med. Urban(50)/Water(80) = Mask.
+                # Remap: Ag(40)/Grass(30)/Scrub(20) = High. Forest(10) = Med. Urban(50)/Water(80) = Low.
                 lulc_score = lulc.remap(
                     [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100], 
-                    [0.5, 0.8, 0.9, 1.0, 0.0, 0.6, 0.1, 0.0, 0.1, 0.1, 0.1]
+                    [0.6, 0.8, 0.9, 1.0, 0.0, 0.6, 0.1, 0.0, 0.1, 0.1, 0.1]
                 ).rename('lulc_score')
                 
-                # Strict Mask for exclusion (Urban & Water)
-                exclusion_mask = lulc.neq(50).And(lulc.neq(80)).And(slope.lt(20))
+                # Exclude completely invalid areas (Urban + Water)
+                exclusion_mask = lulc.neq(50).And(lulc.neq(80)).And(slope.lt(35))
 
-                # D. Soil (Clay Content -> Retention)
+                # D. Soil (Clay Content)
                 try:
                     soil = ee.Image("OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02").select('b0').mean().clip(roi)
-                    soil_n = soil.unitScale(0, 60) # Normalize clay 0-60%
+                    soil_n = normalize_dynamic(soil, roi)
                 except:
-                    soil_n = ee.Image(0.5).clip(roi)
+                    soil_n = ee.Image(0.5).clip(roi) # Fallback if layer fails
 
                 # --- 2. WEIGHTED OVERLAY (MCDA) ---
                 tot = p['total'] if p['total'] > 0 else 1
@@ -872,27 +893,37 @@ else:
                     .add(soil_n.multiply(p['w_soil']/tot))
                 )
                 
+                # Apply Smoothing to remove "speckle" noise
+                suitability_smooth = suitability.focal_median(100, 'circle', 'meters')
+
                 # Apply Masks
-                final_suitability = suitability.updateMask(exclusion_mask).clip(roi)
+                final_suitability = suitability_smooth.updateMask(exclusion_mask).clip(roi)
                 
-                # Visualization
-                vis = {'min': 0.3, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
+                # Visualization - Improved Palette (Red-Yellow-Green-Blue)
+                vis = {'min': 0.3, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641', '#006400']}
                 
-                m.addLayer(dem, {'min':0, 'max':1000, 'palette':['black','white']}, 'DEM (Hidden)', False)
+                # 1. ADD DEM LAYER (Explicitly requested)
+                hillshade = ee.Terrain.hillshade(dem)
+                dem_vis = dem.visualize(min=0, max=1000, palette=['#006400', '#f4a460', '#8b4513', '#ffffff'])
+                dem_composite = dem_vis.blend(hillshade.multiply(0.5)) # Blend with hillshade for 3D effect
+                
+                m.addLayer(dem_composite, {}, 'Terrain Elevation (DEM)')
                 m.addLayer(final_suitability, vis, 'RWH Suitability Index')
-                m.add_colorbar(vis, label="RWH Potential (MCDA Score)")
+                m.add_colorbar(vis, label="Suitability Score (0-1)")
                 
                 image_to_export = final_suitability
                 vis_export = vis
 
                 # Find Peak Suitability Points (Potential Check Dams)
                 try:
-                    high_suit = final_suitability.gt(0.75)
+                    high_suit = final_suitability.gt(0.80)
+                    # Filter small disconnected pixels
+                    high_suit = high_suit.updateMask(high_suit.connectedPixelCount().gt(5))
                     vectors = high_suit.reduceToVectors(
-                        geometry=roi, scale=100, geometryType='centroid', 
-                        eightConnected=False, maxPixels=1e8
+                        geometry=roi, scale=50, geometryType='centroid', 
+                        eightConnected=True, maxPixels=1e8
                     )
-                    m.addLayer(vectors, {'color': 'blue'}, 'Suggested Locations')
+                    m.addLayer(vectors, {'color': 'blue'}, 'Suggested Check Dams')
                 except: pass
 
                 with col_res:
@@ -900,11 +931,11 @@ else:
                     st.markdown('<div class="card-label">📊 CLASSIFICATION</div>', unsafe_allow_html=True)
                     
                     # Classify 1-5
-                    classes = ee.Image(0).where(final_suitability.lt(0.3), 1)\
-                        .where(final_suitability.gte(0.3).And(final_suitability.lt(0.5)), 2)\
-                        .where(final_suitability.gte(0.5).And(final_suitability.lt(0.65)), 3)\
-                        .where(final_suitability.gte(0.65).And(final_suitability.lt(0.8)), 4)\
-                        .where(final_suitability.gte(0.8), 5).updateMask(exclusion_mask).clip(roi)
+                    classes = ee.Image(0).where(final_suitability.lt(0.4), 1)\
+                        .where(final_suitability.gte(0.4).And(final_suitability.lt(0.55)), 2)\
+                        .where(final_suitability.gte(0.55).And(final_suitability.lt(0.70)), 3)\
+                        .where(final_suitability.gte(0.70).And(final_suitability.lt(0.85)), 4)\
+                        .where(final_suitability.gte(0.85), 5).updateMask(exclusion_mask).clip(roi)
                     
                     df = calculate_area_by_class(classes, roi, 30)
                     name_map = {"Class 1": "Very Low", "Class 2": "Low", "Class 3": "Moderate", "Class 4": "High", "Class 5": "Optimal"}
