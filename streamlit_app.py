@@ -619,22 +619,37 @@ with st.sidebar:
         
         params = {}
         if app_mode == "📍 RWH Site Suitability":
-            st.markdown("### 3. Methodology Config (Paper Based)")
-            st.info("Using AHP Weights & SCS-CN Method")
-            st.markdown("The weights below are derived from *Chimdessa et al. (2025)*")
+            st.markdown("### 3. AHP Weights")
+            st.info("Derived from Chimdessa et al. (2025). Expand below to customize.")
             
-            # Display hardcoded weights for transparency
-            weights_display = pd.DataFrame({
-                "Criteria": ["Rainfall", "Land Use (LULC)", "Slope", "Soil Texture", "Runoff Potential", "Soil Depth"],
-                "Weight %": [39.8, 17.5, 14.7, 14.4, 7.8, 5.7]
-            })
-            st.table(weights_display)
+            # --- WEIGHT CUSTOMIZATION SECTION ---
+            with st.expander("⚙️ Customize Criteria Weights", expanded=False):
+                w_rain = st.number_input("Rainfall %", value=39.8, step=0.1, min_value=0.0)
+                w_lulc = st.number_input("Land Use %", value=17.5, step=0.1, min_value=0.0)
+                w_slope = st.number_input("Slope %", value=14.7, step=0.1, min_value=0.0)
+                w_soil_tex = st.number_input("Soil Texture %", value=14.4, step=0.1, min_value=0.0)
+                w_runoff = st.number_input("Runoff Potential %", value=7.8, step=0.1, min_value=0.0)
+                w_soil_depth = st.number_input("Soil Depth %", value=5.7, step=0.1, min_value=0.0)
+            
+            # Normalize user inputs to ensure sum = 1.0
+            total_w = w_rain + w_lulc + w_slope + w_soil_tex + w_runoff + w_soil_depth
+            if total_w == 0: total_w = 1 # Avoid division by zero
+            
+            weights = {
+                'rainfall': w_rain/total_w,
+                'lulc': w_lulc/total_w,
+                'slope': w_slope/total_w,
+                'soil_tex': w_soil_tex/total_w,
+                'runoff': w_runoff/total_w,
+                'soil_depth': w_soil_depth/total_w
+            }
 
             st.markdown("### 4. Period")
             start = st.date_input("From", datetime.now()-timedelta(365*5))
             end = st.date_input("To", datetime.now())
             params = {
-                'start': start.strftime("%Y-%m-%d"), 'end': end.strftime("%Y-%m-%d")
+                'start': start.strftime("%Y-%m-%d"), 'end': end.strftime("%Y-%m-%d"),
+                'weights': weights
             }
 
         elif app_mode == "⚠️ Encroachment (S1 SAR)":
@@ -809,34 +824,27 @@ else:
         if mode == "📍 RWH Site Suitability":
             with st.spinner("Calculating Suitability using AHP & SCS-CN Method..."):
                 
-                # --- 1. DEFINING AHP WEIGHTS (Table 11 of the Paper) ---
-                # The paper assigns specific weights derived from pairwise comparison 
-                weights = {
-                    'rainfall': 0.398,     #
-                    'lulc': 0.175,         #
-                    'slope': 0.147,        #
-                    'soil_tex': 0.144,     #
-                    'runoff': 0.078,       #
-                    'soil_depth': 0.057    #
-                }
+                # --- 1. AHP WEIGHTS ---
+                weights = p['weights'] # Retrieved from sidebar user input
 
                 # --- 2. DATA ACQUISITION & PRE-PROCESSING ---
 
                 # A. Rainfall (Precipitation) -
-                # Using CHIRPS for long-term mean annual rainfall [cite: 459]
+                # Using CHIRPS for long-term mean annual rainfall
+                # [cite_start]Fix: Mean of Pentad * 72 = Mean Annual Rainfall (mm) [cite: 459]
                 rain_annual = ee.ImageCollection("UCSB-CHG/CHIRPS/PENTAD")\
                     .filterDate(p['start'], p['end'])\
-                    .select('precipitation').sum().mean().clip(roi)
+                    .select('precipitation').mean().multiply(72).clip(roi)
                 
                 # Normalize Rainfall (Higher is better)
-                # Paper range: 680mm - 1180mm [cite: 459]
+                # [cite_start]Paper range: 680mm - 1180mm [cite: 459]
                 rain_score = rain_annual.unitScale(600, 1200).clamp(0, 1)
 
                 # B. Slope (Topography) -
                 dem = ee.Image("NASA/NASADEM_HGT/001").select('elevation').clip(roi)
                 slope = ee.Terrain.slope(dem)
                 
-                # Reclassify Slope based on Table 1 
+                # [cite_start]Reclassify Slope based on Table 1 [cite: 224]
                 # <2% (Flat) = Ideal (5), >30% (Steep) = Not Suitable (1)
                 # We use fuzzy logic here for smoother transition: 0-2% -> 1.0, >30% -> 0.0
                 slope_score = ee.Image(1).subtract(slope.clamp(0, 30).divide(30))
@@ -845,7 +853,7 @@ else:
                 # Using ESA WorldCover (10m) as proxy for Landsat classification
                 lulc = ee.Image("ESA/WorldCover/v100/2020").select('Map').clip(roi)
                 
-                # Reclassify LULC for Suitability (Table 8 & Context) [cite: 309, 401]
+                # [cite_start]Reclassify LULC for Suitability (Table 8 & Context) [cite: 405]
                 # Agriculture (40) = High, Scrub/Grass (20/30) = Moderate, Forest (10) = Moderate, Builtup/Water = 0
                 lulc_score = lulc.remap(
                     [10, 20, 30, 40, 50, 60, 70, 80], 
@@ -856,12 +864,12 @@ else:
                 # Using OpenLandMap Clay Content (0 cm depth)
                 clay_content = ee.Image("OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02").select('b0').clip(roi)
                 
-                # Paper Table 4: Clay is "Optimally Suitable", Sandy is "Not Suitable" [cite: 295, 308]
+                # [cite_start]Paper Table 4: Clay is "Optimally Suitable", Sandy is "Not Suitable" [cite: 309]
                 # Normalize: Higher clay % = Higher suitability (Vertisols logic)
                 soil_tex_score = clay_content.unitScale(10, 60).clamp(0, 1)
 
                 # E. Soil Depth -
-                # Deeper soil is better for retention[cite: 683]. 
+                # Deeper soil is better for retention. 
                 try:
                     # Absolute depth to bedrock
                     soil_depth_raw = ee.Image("OpenLandMap/SOL/SOL_GRTGROUP_USDA-SOILTAX_C/v02").select('b0').clip(roi) 
@@ -870,15 +878,15 @@ else:
                      soil_depth_score = ee.Image(0.5).clip(roi)
 
                 # --- 3. SCS-CN RUNOFF ESTIMATION (The "Hazardous" Fix) ---
-                # The paper calculates runoff using Curve Number (CN)
-                # Q = (P - 0.2S)^2 / (P + 0.8S) where S = 25400/CN - 254 [cite: 241, 247, 250]
+                # [cite_start]The paper calculates runoff using Curve Number (CN) [cite: 241, 250]
+                # Q = (P - 0.2S)^2 / (P + 0.8S) where S = 25400/CN - 254
                 
                 # 3.1 Generate CN Map based on LULC and Hydrologic Soil Group
-                # Simplified CN lookup similar to Table 3 [cite: 286]
-                # We approximate Soil Group D (Clay) as the baseline for the ROI (Paper says D is dominant) [cite: 463]
+                # [cite_start]Simplified CN lookup similar to Table 3 [cite: 286]
+                # We approximate Soil Group D (Clay) as the baseline for the ROI (Paper says D is dominant)
                 
                 # Map LULC to CN values (Assuming Soil Group D - High Runoff Potential)
-                # Agri: 91, Forest: 82, Grass: 86, Built: 87, Water: 100 [cite: 286]
+                # Agri: 91, Forest: 82, Grass: 86, Built: 87, Water: 100
                 cn_map = lulc.remap(
                     [10, 20, 30, 40, 50, 60, 80],
                     [82, 86, 86, 91, 87, 91, 100]
@@ -892,16 +900,16 @@ else:
                 P = rain_annual
                 Ia = S.multiply(0.2) # Initial Abstraction
                 
-                # Runoff equation (SCS-CN) 
+                # Runoff equation (SCS-CN)
                 runoff_num = P.subtract(Ia).pow(2)
                 runoff_den = P.subtract(Ia).add(S.multiply(0.8))
                 Q = runoff_num.divide(runoff_den).max(0) # Ensure no negative values
 
-                # Normalize Runoff for Suitability (Higher runoff > 300mm is better) [cite: 292]
+                # [cite_start]Normalize Runoff for Suitability (Higher runoff > 300mm is better) [cite: 292]
                 runoff_score = Q.unitScale(200, 900).clamp(0, 1)
 
                 # --- 4. WEIGHTED OVERLAY (AHP) ---
-                # Formula: S = Sum(Wi * Xi) [cite: 314]
+                # [cite_start]Formula: S = Sum(Wi * Xi) [cite: 314]
                 
                 suitability_index = (
                     rain_score.multiply(weights['rainfall'])
@@ -915,7 +923,7 @@ else:
                 # --- 5. VISUALIZATION & OUTPUT ---
                 
                 # Define Suitability Classes (1-5) based on Paper
-                # <0.4: Not Suitable, 0.4-0.55: Marginally, 0.55-0.7: Moderate, 0.7-0.85: Suitable, >0.85: Highly
+                # [cite_start]<0.4: Not Suitable, 0.4-0.55: Marginally, 0.55-0.7: Moderate, 0.7-0.85: Suitable, >0.85: Highly [cite: 672]
                 
                 vis_params = {
                     'min': 0, 
@@ -944,7 +952,7 @@ else:
                     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
                     st.markdown('<div class="card-label">📊 CLASSIFICATION</div>', unsafe_allow_html=True)
                     
-                    # Reclassify strictly for area calculation as per Paper Table 12 [cite: 669]
+                    # [cite_start]Reclassify strictly for area calculation as per Paper Table 12 [cite: 670]
                     classified = ee.Image(0) \
                         .where(suitability_index.lt(0.40), 1) \
                         .where(suitability_index.gte(0.40).And(suitability_index.lt(0.55)), 2) \
