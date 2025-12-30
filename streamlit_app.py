@@ -152,7 +152,6 @@ try:
         ee.Initialize()
 except Exception as e:
     st.error(f"⚠️ GEE Authentication Error: {e}")
-    # Don't stop, as DL module might work without GEE if using Planetary Computer
 
 # --- STATE MANAGEMENT ---
 if 'calculated' not in st.session_state: st.session_state['calculated'] = False
@@ -625,22 +624,19 @@ with st.sidebar:
 
         params = {}
         if app_mode == "📍 RWH Site Suitability":
-            st.markdown("### 3. Criteria Weights")
-            st.info("MCDA - Multi-Criteria Decision Analysis")
-            w_rain = st.slider("Precipitation Potential", 0, 100, 20)
-            w_slope = st.slider("Terrain & Drainage (TWI)", 0, 100, 40, help="Combines Slope and Topographic Wetness")
-            w_lulc = st.slider("Land Use Availability", 0, 100, 20)
-            w_soil = st.slider("Soil Retention (Clay)", 0, 100, 20)
-
-            total_w = w_rain + w_slope + w_lulc + w_soil
-            st.markdown(f"**Total Weight: {total_w}** (Normalized automatically)")
-
-            st.markdown("### 4. Period")
-            start = st.date_input("From", datetime.now()-timedelta(365*5))
-            end = st.date_input("To", datetime.now())
+            st.markdown("### 3. Planning Parameters")
+            rwh_type = st.selectbox("Structure Type", ("Check Dam", "Farm Pond", "Percolation Tank"))
+            year = st.slider("Analysis Year", 2018, 2024, 2023)
+            
+            start_date = f'{year}-06-01'
+            end_date = f'{year}-10-30' # Monsoon season
+            st.info(f"Period: {start_date} to {end_date}")
+            st.caption("Model: Random Forest Classifier")
+            
             params = {
-                'w_rain': w_rain, 'w_slope': w_slope, 'w_lulc': w_lulc, 'w_soil': w_soil,
-                'start': start.strftime("%Y-%m-%d"), 'end': end.strftime("%Y-%m-%d"), 'total': total_w
+                'rwh_type': rwh_type,
+                'start': start_date, 
+                'end': end_date
             }
 
         elif app_mode == "⚠️ Encroachment (S1 SAR)":
@@ -810,109 +806,137 @@ else:
         vis_export = {}
 
         # ==========================================
-        # LOGIC A: RWH SITE SUITABILITY
+        # LOGIC A: RWH SITE SUITABILITY (UPDATED)
         # ==========================================
         if mode == "📍 RWH Site Suitability":
-            with st.spinner("Calculating Hydrological Suitability..."):
+            with st.spinner("AI Planning in Progress (Random Forest)..."):
+                
+                # 1. DATA ACQUISITION
+                # DEM (SRTM)
+                dem = ee.Image("USGS/SRTMGL1_003").clip(roi)
+                
+                # Rainfall (CHIRPS Daily)
+                rainfall = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY") \
+                    .filterDate(p['start'], p['end']) \
+                    .filterBounds(roi) \
+                    .sum() \
+                    .clip(roi) \
+                    .rename('rainfall')
 
-                # --- 1. DATA ACQUISITION & NORMALIZATION ---
+                # LULC (ESA WorldCover)
+                lulc = ee.ImageCollection("ESA/WorldCover/v100").first().clip(roi).rename('lulc')
+                
+                # Soil (OpenLandMap - Sand content)
+                soil = ee.Image("OpenLandMap/SOL/SOL_SAND-WFRACTION_USDA-3A1a1a_M/v02") \
+                    .select('b0').clip(roi).rename('soil_sand')
 
-                # A. Precipitation (CHIRPS)
-                rain = ee.ImageCollection("UCSB-CHG/CHIRPS/PENTAD")\
-                    .filterDate(p['start'], p['end']).select('precipitation').mean().clip(roi)
-                # Normalize rain min-max within ROI for relative difference
-                min_max_rain = rain.reduceRegion(ee.Reducer.minMax(), roi, 1000).getInfo()
-                r_min = min_max_rain.get('precipitation_min', 0)
-                r_max = min_max_rain.get('precipitation_max', 100)
-                rain_n = rain.unitScale(r_min, r_max)
+                # 2. FEATURE ENGINEERING
+                # Topographic Factors
+                slope = ee.Terrain.slope(dem).rename('slope')
+                
+                # Hydrology (Flow Accumulation from HydroSHEDS)
+                hydro = ee.Image("WWF/HydroSHEDS/03VFDEM").clip(roi)
+                flow_acc = hydro.select('b1').rename('flow_accumulation')
 
-                # B. Topography (Slope & TWI)
-                dem = ee.Image("NASA/NASADEM_HGT/001").select('elevation').clip(roi)
-                slope = ee.Terrain.slope(dem)
+                # Combine all features
+                features = ee.Image.cat([dem, slope, rainfall, flow_acc, soil, lulc])
+                feature_names = ['elevation', 'slope', 'rainfall', 'flow_accumulation', 'soil_sand', 'lulc']
+                features = features.rename(feature_names)
 
-                # Calculate TWI (Topographic Wetness Index) for Flow Accumulation
-                flow_acc = ee.Image("WWF/HydroSHEDS/15ACC").select('b1').clip(roi)
-                # TWI formula approx: ln(a / tan(b))
-                twi = flow_acc.log().subtract(slope.multiply(0.01745).tan().log()).rename('twi')
+                # 3. GIS CONSTRAINT FILTERING
+                def apply_constraints(image, structure):
+                    # Exclude very steep slopes (> 30 degrees)
+                    slope_mask = image.select('slope').lt(30)
+                    
+                    # Exclude Urban Areas (LULC class 50 in ESA WorldCover)
+                    urban_mask = image.select('lulc').neq(50)
+                    
+                    # Structure specific constraints
+                    if structure == "Check Dam":
+                        # Needs drainage lines (High Flow Acc) but moderate slope
+                        struct_mask = image.select('slope').lt(15)
+                    elif structure == "Farm Pond":
+                        # Needs flat land
+                        struct_mask = image.select('slope').lt(5)
+                    else:
+                        struct_mask = ee.Image(1)
 
-                # Normalize TWI (Higher is better for collection)
-                twi_n = twi.unitScale(2, 12).clamp(0, 1) # Clamp outliers
+                    combined_mask = slope_mask.And(urban_mask).And(struct_mask)
+                    return image.updateMask(combined_mask)
 
-                # Normalize Slope (Lower is generally better, but not 0)
-                slope_n = ee.Image(1).subtract(slope.clamp(0, 25).unitScale(0, 25))
+                processed_features = apply_constraints(features, p['rwh_type'])
 
-                # Combined Terrain Score (50% TWI, 50% Slope)
-                terrain_score = twi_n.add(slope_n).divide(2)
+                # 4. TRAINING DATA CREATION (SIMULATED)
+                # Generates training points because we don't have real ground truth uploaded.
+                def get_synthetic_training_data(roi, image):
+                    # Define rules for "Good" locations (Class 1) - High Flow + Low Slope
+                    high_suitability_rule = image.select('flow_accumulation').gt(500) \
+                        .And(image.select('slope').lt(10))
+                    
+                    # Define rules for "Bad" locations (Class 0) - Steep Slope
+                    low_suitability_rule = image.select('slope').gt(20)
+                    
+                    # Sample points
+                    points_good = image.updateMask(high_suitability_rule).sample(
+                        region=roi, scale=100, numPixels=50, geometries=True
+                    ).map(lambda f: f.set('class', 1))
+                    
+                    points_bad = image.updateMask(low_suitability_rule).sample(
+                        region=roi, scale=100, numPixels=50, geometries=True
+                    ).map(lambda f: f.set('class', 0))
+                    
+                    return points_good.merge(points_bad)
 
-                # C. LULC (ESA WorldCover)
-                lulc = ee.Image("ESA/WorldCover/v100/2020").select('Map').clip(roi)
-                # Remap: Ag(40)/Grass(30)/Scrub(20) = High. Forest(10) = Med. Urban(50)/Water(80) = Mask.
-                lulc_score = lulc.remap(
-                    [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100],
-                    [0.5, 0.8, 0.9, 1.0, 0.0, 0.6, 0.1, 0.0, 0.1, 0.1, 0.1]
-                ).rename('lulc_score')
+                training_data = get_synthetic_training_data(roi, processed_features)
 
-                # Strict Mask for exclusion (Urban & Water)
-                exclusion_mask = lulc.neq(50).And(lulc.neq(80)).And(slope.lt(20))
-
-                # D. Soil (Clay Content -> Retention)
-                try:
-                    soil = ee.Image("OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02").select('b0').mean().clip(roi)
-                    soil_n = soil.unitScale(0, 60) # Normalize clay 0-60%
-                except:
-                    soil_n = ee.Image(0.5).clip(roi)
-
-                # --- 2. WEIGHTED OVERLAY (MCDA) ---
-                tot = p['total'] if p['total'] > 0 else 1
-
-                suitability = (
-                    rain_n.multiply(p['w_rain']/tot)
-                    .add(terrain_score.multiply(p['w_slope']/tot))
-                    .add(lulc_score.multiply(p['w_lulc']/tot))
-                    .add(soil_n.multiply(p['w_soil']/tot))
-                )
-
-                # Apply Masks
-                final_suitability = suitability.updateMask(exclusion_mask).clip(roi)
-
-                # Visualization
-                vis = {'min': 0.3, 'max': 0.8, 'palette': ['#d7191c', '#fdae61', '#ffffbf', '#a6d96a', '#1a9641']}
-
-                m.addLayer(dem, {'min':0, 'max':1000, 'palette':['black','white']}, 'DEM (Hidden)', False)
-                m.addLayer(final_suitability, vis, 'RWH Suitability Index')
-                m.add_colorbar(vis, label="RWH Potential (MCDA Score)")
-
-                image_to_export = final_suitability
-                vis_export = vis
-
-                # Find Peak Suitability Points (Potential Check Dams)
-                try:
-                    high_suit = final_suitability.gt(0.75)
-                    vectors = high_suit.reduceToVectors(
-                        geometry=roi, scale=100, geometryType='centroid',
-                        eightConnected=False, maxPixels=1e8
+                # 5. AI / ML MODELING (Random Forest)
+                classifier = ee.Classifier.smileRandomForest(numberOfTrees=50) \
+                    .train(
+                        features=training_data,
+                        classProperty='class',
+                        inputProperties=feature_names
                     )
-                    m.addLayer(vectors, {'color': 'blue'}, 'Suggested Locations')
-                except: pass
 
+                # Classify the image
+                classified_suitability = processed_features.classify(classifier)
+                
+                # 6. VISUALIZATION
+                vis_params_slope = {'min': 0, 'max': 30, 'palette': ['green', 'yellow', 'red']}
+                vis_params_rain = {'min': 0, 'max': 2000, 'palette': ['blue', 'cyan', 'green']}
+                vis_params_suitability = {'min': 0, 'max': 1, 'palette': ['red', 'green']} # Red=Bad, Green=Good
+
+                m.addLayer(dem, {'min': 0, 'max': 1000, 'palette': ['black', 'white']}, 'DEM (Elevation)', False)
+                m.addLayer(slope, vis_params_slope, 'Slope', False)
+                m.addLayer(rainfall, vis_params_rain, 'Rainfall', False)
+                m.addLayer(classified_suitability, vis_params_suitability, 'Predicted Suitability (RF)', True)
+                m.addLayer(training_data, {'color': 'blue'}, 'Training Samples (Synthetic)', False)
+
+                image_to_export = classified_suitability
+                vis_export = vis_params_suitability
+
+                # 7. ANALYTICS (Right Column)
                 with col_res:
                     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-                    st.markdown('<div class="card-label">📊 CLASSIFICATION</div>', unsafe_allow_html=True)
-
-                    # Classify 1-5
-                    classes = ee.Image(0).where(final_suitability.lt(0.3), 1)\
-                        .where(final_suitability.gte(0.3).And(final_suitability.lt(0.5)), 2)\
-                        .where(final_suitability.gte(0.5).And(final_suitability.lt(0.65)), 3)\
-                        .where(final_suitability.gte(0.65).And(final_suitability.lt(0.8)), 4)\
-                        .where(final_suitability.gte(0.8), 5).updateMask(exclusion_mask).clip(roi)
-
-                    df = calculate_area_by_class(classes, roi, 30)
-                    name_map = {"Class 1": "Very Low", "Class 2": "Low", "Class 3": "Moderate", "Class 4": "High", "Class 5": "Optimal"}
-                    if not df.empty:
-                        df['Class'] = df['Class'].map(name_map).fillna(df['Class'])
-                        st.dataframe(df, hide_index=True, use_container_width=True)
+                    st.markdown('<div class="card-label">🧠 DECISION SUPPORT</div>', unsafe_allow_html=True)
+                    
+                    st.success(f"✅ Target: {p['rwh_type']}")
+                    st.info("✅ Algorithm: Random Forest (50 Trees)")
+                    
+                    # Statistics
+                    stats = rainfall.reduceRegion(
+                        reducer=ee.Reducer.mean(),
+                        geometry=roi,
+                        scale=1000,
+                        maxPixels=1e9
+                    ).getInfo()
+                    
+                    if stats:
+                         st.metric("Avg Rainfall", f"{stats.get('rainfall', 0):.2f} mm")
                     else:
-                        st.warning("No suitable areas found within thresholds.")
+                        st.warning("Stats unavailable for region")
+                        
+                    st.markdown("---")
+                    st.caption("Suitability based on synthetic training data derived from hydrological rules.")
                     st.markdown("</div>", unsafe_allow_html=True)
 
         # ==========================================
