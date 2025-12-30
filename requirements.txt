@@ -17,3 +17,4 @@ planetary-computer
 stackstac
 dask
 requests
+opencv-python-headless
