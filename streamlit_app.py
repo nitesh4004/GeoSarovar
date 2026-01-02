@@ -13,7 +13,6 @@ from io import BytesIO
 from PIL import Image
 from datetime import datetime, timedelta
 import pandas as pd
-import folium
 import geopandas as gpd
 import zipfile
 import os
@@ -156,7 +155,7 @@ except Exception as e:
 # --- STATE MANAGEMENT ---
 if 'calculated' not in st.session_state: st.session_state['calculated'] = False
 if 'roi' not in st.session_state: st.session_state['roi'] = None
-if 'mode' not in st.session_state: st.session_state['mode'] = "📍 RWH Site Suitability"
+if 'mode' not in st.session_state: st.session_state['mode'] = "🌦️ Rainfall Analysis"
 if 'dl_result' not in st.session_state: st.session_state['dl_result'] = None
 
 # --- 4. DL MODEL HELPERS (From Inference Utils) ---
@@ -263,19 +262,16 @@ def build_planetary_computer_image_for_aoi(aoi_geojson, satellite_type: str, mon
     import planetary_computer
     import stackstac
 
-    # Handle GeoJSON input logic
     if isinstance(aoi_geojson, dict) and "geometry" in aoi_geojson:
         geom_dict = aoi_geojson["geometry"]
     else:
         geom_dict = aoi_geojson
 
     coords = geom_dict["coordinates"][0] if geom_dict['type'] == 'Polygon' else geom_dict["coordinates"][0][0]
-    # Simple bbox extract
     lons = [c[0] for c in coords]
     lats = [c[1] for c in coords]
     bbox_wgs84 = [min(lons), min(lats), max(lons), max(lats)]
 
-    # Web Mercator Transform
     from pyproj import Transformer
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
     min_x, min_y = transformer.transform(bbox_wgs84[0], bbox_wgs84[1])
@@ -295,7 +291,7 @@ def build_planetary_computer_image_for_aoi(aoi_geojson, satellite_type: str, mon
         collection = "sentinel-2-l2a"
         bands = ["B02", "B03", "B04", "B08", "B11", "B12"]
         scale = 10
-    else: # Landsat
+    else: 
         collection = "landsat-c2-l2"
         bands = ["coastal", "blue", "green", "red", "nir08", "swir16"]
         scale = 30
@@ -319,7 +315,6 @@ def build_planetary_computer_image_for_aoi(aoi_geojson, satellite_type: str, mon
         composite = stack.median(dim="time").compute()
 
     image = composite.values
-    # Transform creation
     x_coords = composite.x.values
     y_coords = composite.y.values
     x_res = float(x_coords[1] - x_coords[0]) if len(x_coords) > 1 else scale
@@ -349,7 +344,7 @@ def read_geotiff(path):
         bounds = src.bounds
     return image, profile, transform, crs, bounds
 
-# --- 5. APP HELPER FUNCTIONS (Existing) ---
+# --- 5. APP HELPER FUNCTIONS ---
 
 def parse_kml(content):
     try:
@@ -398,27 +393,6 @@ def geopandas_to_ee(gdf_row):
         return ee.Geometry(geom)
     except: return None
 
-def calculate_area_by_class(image, region, scale):
-    area_image = ee.Image.pixelArea().addBands(image)
-    stats = area_image.reduceRegion(
-        reducer=ee.Reducer.sum().group(groupField=1, groupName='class_index'),
-        geometry=region, scale=scale, maxPixels=1e10, bestEffort=True
-    )
-    groups = stats.get('groups').getInfo()
-    data = []
-    total_area = 0
-    if not groups: return pd.DataFrame()
-    for item in groups:
-        area_ha = item['sum'] / 10000.0
-        total_area += area_ha
-        data.append({"Class": f"Class {int(item['class_index'])}", "Area (ha)": area_ha})
-    df = pd.DataFrame(data)
-    if not df.empty:
-        df = df.sort_values(by="Area (ha)", ascending=False)
-        df["%"] = ((df["Area (ha)"] / total_area) * 100).round(1)
-        df["Area (ha)"] = df["Area (ha)"].round(2)
-    return df
-
 # --- ADVANCED STATIC MAP GENERATOR ---
 def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
     try:
@@ -446,7 +420,6 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         if fig_height > 20: fig_height = 20
         if fig_height < 4: fig_height = 4
 
-        # Background Imagery (Sentinel-2 Cloud Free)
         s2_background = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")\
             .filterBounds(roi).filterDate('2023-01-01', '2023-12-31')\
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))\
@@ -473,11 +446,9 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         ax.imshow(img_pil, extent=extent, aspect='auto')
         ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#00204a')
 
-        # Grid and Ticks
         ax.tick_params(colors='black', labelsize=10)
         for spine in ax.spines.values(): spine.set_edgecolor('black')
 
-        # Legend Logic
         if is_categorical and class_names and 'palette' in vis_params:
             patches = [mpatches.Patch(color=c, label=n) for n, c in zip(class_names, vis_params['palette'])]
             legend = ax.legend(handles=patches, loc='upper center', bbox_to_anchor=(0.5, -0.08),
@@ -503,7 +474,7 @@ with st.sidebar:
     st.image("https://raw.githubusercontent.com/nitesh4004/GeoSarovar/main/geosarovar.png", use_container_width=True)
     st.markdown("### 1. Select Module")
     app_mode = st.radio("Choose Functionality:",
-                        ["📍 RWH Site Suitability",
+                        ["🌦️ Rainfall & Climate Analysis",
                          "⚠️ Encroachment (S1 SAR)",
                          "Flood Extent Mapping",
                          "🧪 Water Quality",
@@ -623,20 +594,23 @@ with st.sidebar:
         st.markdown("---")
 
         params = {}
-        if app_mode == "📍 RWH Site Suitability":
-            st.markdown("### 3. Planning Parameters")
-            rwh_type = st.selectbox("Structure Type", ("Check Dam", "Farm Pond", "Percolation Tank"))
-            year = st.slider("Analysis Year", 2018, 2024, 2023)
+        if app_mode == "🌦️ Rainfall & Climate Analysis":
+            st.markdown("### 3. Data & Time Parameters")
+            dataset = st.selectbox("Dataset Source", ["CHIRPS (Daily Climatology)", "GPM (IMERG Near-Real-Time)"])
             
-            start_date = f'{year}-06-01'
-            end_date = f'{year}-10-30' # Monsoon season
-            st.info(f"Period: {start_date} to {end_date}")
-            st.caption("Model: Random Forest Classifier")
+            st.markdown("**Analysis Period**")
+            col1, col2 = st.columns(2)
+            # Default to Monsoon season for better visuals
+            rain_start = col1.date_input("Start Date", datetime(2023, 6, 1))
+            rain_end = col2.date_input("End Date", datetime(2023, 9, 30))
+            
+            calc_mode = st.radio("Calculation Mode", ["Total Accumulation (mm)", "Rainfall Anomaly (%)"])
             
             params = {
-                'rwh_type': rwh_type,
-                'start': start_date, 
-                'end': end_date
+                'dataset': dataset,
+                'start': rain_start.strftime("%Y-%m-%d"),
+                'end': rain_end.strftime("%Y-%m-%d"),
+                'calc_mode': calc_mode
             }
 
         elif app_mode == "⚠️ Encroachment (S1 SAR)":
@@ -806,164 +780,140 @@ else:
         vis_export = {}
 
         # ==========================================
-        # LOGIC A: RWH SITE SUITABILITY (FIXED)
+        # LOGIC A: RAINFALL & CLIMATE (NEW FEATURE)
         # ==========================================
-        if mode == "📍 RWH Site Suitability":
-            with st.spinner("AI Planning in Progress (Random Forest)..."):
-                
-                # 1. DATA ACQUISITION
-                # DEM (SRTM)
-                dem = ee.Image("USGS/SRTMGL1_003").clip(roi)
-                
-                # Rainfall (CHIRPS Daily)
-                rainfall = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY") \
-                    .filterDate(p['start'], p['end']) \
-                    .filterBounds(roi) \
-                    .sum() \
-                    .clip(roi) \
-                    .rename('rainfall')
-
-                # LULC (ESA WorldCover)
-                lulc = ee.ImageCollection("ESA/WorldCover/v100").first().clip(roi).rename('lulc')
-                
-                # Soil (OpenLandMap - Sand content)
-                soil = ee.Image("OpenLandMap/SOL/SOL_SAND-WFRACTION_USDA-3A1a1a_M/v02") \
-                    .select('b0').clip(roi).rename('soil_sand')
-
-                # 2. FEATURE ENGINEERING
-                # Topographic Factors
-                slope = ee.Terrain.slope(dem).rename('slope')
-                
-                # Hydrology (Flow Accumulation from HydroSHEDS - ACC (Accumulation) not VFDEM (Elevation))
-                # Fixed: Use 15ACC for flow accumulation.
-                hydro_acc = ee.Image("WWF/HydroSHEDS/15ACC").clip(roi)
-                flow_acc = hydro_acc.select('b1').rename('flow_accumulation')
-
-                # Combine all features
-                features = ee.Image.cat([dem, slope, rainfall, flow_acc, soil, lulc])
-                feature_names = ['elevation', 'slope', 'rainfall', 'flow_accumulation', 'soil_sand', 'lulc']
-                features = features.rename(feature_names)
-
-                # 3. GIS CONSTRAINT FILTERING
-                def apply_constraints(image, structure):
-                    # Exclude very steep slopes (> 30 degrees)
-                    slope_mask = image.select('slope').lt(30)
-                    
-                    # Exclude Urban Areas (LULC class 50 in ESA WorldCover)
-                    urban_mask = image.select('lulc').neq(50)
-                    
-                    # Structure specific constraints
-                    if structure == "Check Dam":
-                        # Check dams need some slope but not too much, and defined drainage
-                        struct_mask = image.select('slope').lt(15)
-                    elif structure == "Farm Pond":
-                        # Needs flat land
-                        struct_mask = image.select('slope').lt(5)
-                    else:
-                        struct_mask = ee.Image(1)
-
-                    combined_mask = slope_mask.And(urban_mask).And(struct_mask)
-                    return image.updateMask(combined_mask)
-
-                processed_features = apply_constraints(features, p['rwh_type'])
-
-                # 4. TRAINING DATA CREATION (SIMULATED)
-                # We need to make the rules less strict for small ROIs or flatter terrain
-                def get_synthetic_training_data(roi, image):
-                    # Fixed: Lowered flow accumulation threshold for robustness on smaller streams
-                    # Class 1: Good (High Flow + Low Slope)
-                    high_suitability_rule = image.select('flow_accumulation').gt(50) \
-                        .And(image.select('slope').lt(8))
-                    
-                    # Class 0: Bad (Steep Slope OR Very Low Flow)
-                    low_suitability_rule = image.select('slope').gt(15) \
-                        .Or(image.select('flow_accumulation').lt(10))
-                    
-                    # Sample points with explicit projection to avoid errors and tileScale for memory
-                    points_good = image.updateMask(high_suitability_rule).sample(
-                        region=roi, scale=100, numPixels=30, geometries=True, tileScale=16, dropNulls=True
-                    ).map(lambda f: f.set('class', 1))
-                    
-                    points_bad = image.updateMask(low_suitability_rule).sample(
-                        region=roi, scale=100, numPixels=30, geometries=True, tileScale=16, dropNulls=True
-                    ).map(lambda f: f.set('class', 0))
-                    
-                    return points_good.merge(points_bad)
-
-                training_data = get_synthetic_training_data(roi, processed_features)
-
-                # 5. AI / ML MODELING (Random Forest)
-                # Check if training data exists before training using a safe wrapper
-                valid_model = False
+        if mode == "🌦️ Rainfall Analysis" or mode == "🌦️ Rainfall & Climate Analysis":
+            with st.spinner("Processing Meteorological Data..."):
                 try:
-                    count = training_data.size().getInfo()
-                    if count > 5:
-                        valid_model = True
-                except:
-                    valid_model = False
-                
-                vis_params_slope = {'min': 0, 'max': 30, 'palette': ['green', 'yellow', 'red']}
-                vis_params_rain = {'min': 0, 'max': 2000, 'palette': ['blue', 'cyan', 'green']}
-                vis_params_suitability = {'min': 0, 'max': 1, 'palette': ['red', 'green']} # Red=Bad, Green=Good
+                    # 1. Dataset Selection
+                    col = None
+                    rain_band = ''
+                    scale_res = 5000 # Meters
 
-                if valid_model:
-                    classifier = ee.Classifier.smileRandomForest(numberOfTrees=50) \
-                        .train(
-                            features=training_data,
-                            classProperty='class',
-                            inputProperties=feature_names
-                        )
-                    classified_suitability = processed_features.classify(classifier)
-                    st.toast("Random Forest Model Trained Successfully!")
-                    mode_info = "Random Forest (ML)"
-                else:
-                    st.warning("⚠️ Insufficient training points for ML. Switching to Heuristic Rule-Based Mode.")
-                    # Heuristic Fallback: Simple logical selection (Rule-Based)
-                    # Good = Slope < 10 AND Flow > 40
-                    rule_based = processed_features.select('slope').lt(10).And(
-                                 processed_features.select('flow_accumulation').gt(40))
-                    classified_suitability = rule_based.rename('suitability')
-                    mode_info = "Heuristic (Rule-Based)"
+                    if "CHIRPS" in p['dataset']:
+                        # CHIRPS Pentad/Daily
+                        col = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY") \
+                            .filterDate(p['start'], p['end']) \
+                            .filterBounds(roi)
+                        rain_band = 'precipitation'
+                        scale_res = 5566 # 0.05 degrees
+                    elif "GPM" in p['dataset']:
+                        # GPM IMERG
+                        col = ee.ImageCollection("NASA/GPM_L3/IMERG_V06") \
+                            .filterDate(p['start'], p['end']) \
+                            .filterBounds(roi)
+                        # precipitationCal is the calibrated precipitation
+                        rain_band = 'precipitationCal'
+                        scale_res = 10000 # 0.1 degrees
 
-                # Visualization
-                m.addLayer(dem, {'min': 0, 'max': 1000, 'palette': ['black', 'white']}, 'DEM (Elevation)', False)
-                m.addLayer(slope, vis_params_slope, 'Slope', False)
-                m.addLayer(flow_acc, {'min': 0, 'max': 500, 'palette': ['white', 'blue']}, 'Flow Accumulation', False)
-                m.addLayer(classified_suitability, vis_params_suitability, 'Predicted Suitability', True)
-                
-                if valid_model:
-                    m.addLayer(training_data, {'color': 'blue'}, 'Training Samples (Synthetic)', False)
+                    if col.size().getInfo() == 0:
+                        st.error("No data found for the selected date range.")
+                    else:
+                        # 2. Main Calculation
+                        main_layer = None
+                        legend_title = ""
+                        vis_params_rain = {}
 
-                image_to_export = classified_suitability
-                vis_export = vis_params_suitability
+                        if "Accumulation" in p['calc_mode']:
+                            # Total Rainfall (Sum)
+                            main_layer = col.select(rain_band).sum().clip(roi)
+                            
+                            # Dynamic visual min/max based on region stats
+                            stats = main_layer.reduceRegion(ee.Reducer.minMax(), roi, scale=scale_res, bestEffort=True).getInfo()
+                            min_val = stats.get(f'{rain_band}_min', 0)
+                            max_val = stats.get(f'{rain_band}_max', 500)
+                            
+                            vis_params_rain = {
+                                'min': min_val, 
+                                'max': max_val, 
+                                'palette': ['#ffffcc', '#a1dab4', '#41b6c4', '#225ea8', '#081d58'] # YlGnBu
+                            }
+                            legend_title = "Total Rainfall (mm)"
+                            
+                        elif "Anomaly" in p['calc_mode']:
+                            # Anomaly Calculation: (Current Sum - LTM Sum) / LTM Sum * 100
+                            # Note: Calculating LTM on the fly in GEE can be heavy. 
+                            # We will use a simplified approach: Compare current period to specific baseline year (e.g. 5 year avg)
+                            
+                            current_sum = col.select(rain_band).sum().clip(roi)
+                            
+                            # Calculate Baseline (Previous 5 years same dates)
+                            start_dt = datetime.strptime(p['start'], "%Y-%m-%d")
+                            end_dt = datetime.strptime(p['end'], "%Y-%m-%d")
+                            
+                            baseline_years = range(start_dt.year - 5, start_dt.year)
+                            baseline_imgs = []
+                            
+                            for y in baseline_years:
+                                s = start_dt.replace(year=y).strftime("%Y-%m-%d")
+                                e = end_dt.replace(year=y).strftime("%Y-%m-%d")
+                                baseline_imgs.append(
+                                    ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY").filterDate(s, e).select('precipitation').sum()
+                                )
+                            
+                            ltm = ee.ImageCollection(baseline_imgs).mean().clip(roi)
+                            
+                            main_layer = current_sum.subtract(ltm).divide(ltm).multiply(100).rename('anomaly')
+                            
+                            vis_params_rain = {
+                                'min': -50, 
+                                'max': 50, 
+                                'palette': ['red', 'orange', 'white', 'cyan', 'blue']
+                            }
+                            legend_title = "Rainfall Anomaly (%)"
 
-                # 7. ANALYTICS (Right Column)
-                with col_res:
-                    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-                    st.markdown('<div class="card-label">🧠 DECISION SUPPORT</div>', unsafe_allow_html=True)
-                    
-                    st.success(f"✅ Target: {p['rwh_type']}")
-                    st.info(f"✅ Algorithm: {mode_info}")
-                    
-                    # Statistics
-                    try:
-                        stats = rainfall.reduceRegion(
-                            reducer=ee.Reducer.mean(),
-                            geometry=roi,
-                            scale=1000,
-                            maxPixels=1e9
-                        ).getInfo()
+                        # 3. Add to Map
+                        m.addLayer(main_layer, vis_params_rain, legend_title)
+                        m.add_colorbar(vis_params_rain, label=legend_title)
                         
-                        if stats:
-                             st.metric("Avg Rainfall", f"{stats.get('rainfall', 0):.2f} mm")
-                        else:
-                            st.warning("Stats unavailable for region")
-                    except:
-                         st.warning("Could not calculate rainfall stats.")
-                         
-                    st.markdown("---")
-                    st.caption("Suitability based on synthetic training data derived from hydrological rules.")
-                    st.markdown("</div>", unsafe_allow_html=True)
+                        image_to_export = main_layer
+                        vis_export = vis_params_rain
+
+                        # 4. Analytics & Charts
+                        with col_res:
+                            st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+                            st.markdown('<div class="card-label">📈 STATISTICS</div>', unsafe_allow_html=True)
+                            
+                            # Reduce region to get single value stats
+                            if "Accumulation" in p['calc_mode']:
+                                roi_mean = main_layer.reduceRegion(ee.Reducer.mean(), roi, scale=scale_res, bestEffort=True).values().get(0).getInfo()
+                                st.metric("Avg Rainfall", f"{roi_mean:.1f} mm")
+                                
+                                roi_max = main_layer.reduceRegion(ee.Reducer.max(), roi, scale=scale_res, bestEffort=True).values().get(0).getInfo()
+                                st.metric("Max Intensity", f"{roi_max:.1f} mm")
+                            else:
+                                roi_mean = main_layer.reduceRegion(ee.Reducer.mean(), roi, scale=scale_res, bestEffort=True).values().get(0).getInfo()
+                                st.metric("Avg Anomaly", f"{roi_mean:.1f} %", delta=roi_mean)
+
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            
+                            # Time Series Chart
+                            st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+                            st.markdown('<div class="card-label">📅 TIME SERIES</div>', unsafe_allow_html=True)
+                            
+                            def get_daily_mean(img):
+                                date = ee.Date(img.get('system:time_start')).format('YYYY-MM-dd')
+                                val = img.reduceRegion(ee.Reducer.mean(), roi, scale=scale_res, bestEffort=True).values().get(0)
+                                return ee.Feature(None, {'date': date, 'rainfall': val})
+                            
+                            ts_fc = col.select(rain_band).map(get_daily_mean).filter(ee.Filter.notNull(['rainfall']))
+                            data_list = ts_fc.reduceColumns(ee.Reducer.toList(2), ['date', 'rainfall']).get('list').getInfo()
+                            
+                            if data_list:
+                                df_rain = pd.DataFrame(data_list, columns=['Date', 'Rainfall (mm)'])
+                                df_rain['Date'] = pd.to_datetime(df_rain['Date'])
+                                df_rain = df_rain.sort_values('Date')
+                                
+                                st.bar_chart(df_rain, x='Date', y='Rainfall (mm)', color="#225ea8")
+                                
+                                # Export CSV
+                                csv = df_rain.to_csv(index=False).encode('utf-8')
+                                st.download_button("Download CSV", csv, "rainfall_series.csv", "text/csv")
+                            
+                            st.markdown("</div>", unsafe_allow_html=True)
+
+                except Exception as e:
+                    st.error(f"Error in Rainfall Module: {e}")
 
         # ==========================================
         # LOGIC B: ENCROACHMENT DETECTION (SENTINEL-1)
