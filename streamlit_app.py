@@ -879,13 +879,13 @@ else:
                     low_suitability_rule = image.select('slope').gt(15) \
                         .Or(image.select('flow_accumulation').lt(10))
                     
-                    # Sample points with explicit projection to avoid errors
+                    # Sample points with explicit projection to avoid errors and tileScale for memory
                     points_good = image.updateMask(high_suitability_rule).sample(
-                        region=roi, scale=90, numPixels=30, geometries=True, tileScale=4
+                        region=roi, scale=100, numPixels=30, geometries=True, tileScale=16, dropNulls=True
                     ).map(lambda f: f.set('class', 1))
                     
                     points_bad = image.updateMask(low_suitability_rule).sample(
-                        region=roi, scale=90, numPixels=30, geometries=True, tileScale=4
+                        region=roi, scale=100, numPixels=30, geometries=True, tileScale=16, dropNulls=True
                     ).map(lambda f: f.set('class', 0))
                     
                     return points_good.merge(points_bad)
@@ -893,10 +893,20 @@ else:
                 training_data = get_synthetic_training_data(roi, processed_features)
 
                 # 5. AI / ML MODELING (Random Forest)
-                # Check if training data exists before training
-                count = training_data.size().getInfo()
+                # Check if training data exists before training using a safe wrapper
+                valid_model = False
+                try:
+                    count = training_data.size().getInfo()
+                    if count > 5:
+                        valid_model = True
+                except:
+                    valid_model = False
                 
-                if count > 5: # Ensure minimum data points
+                vis_params_slope = {'min': 0, 'max': 30, 'palette': ['green', 'yellow', 'red']}
+                vis_params_rain = {'min': 0, 'max': 2000, 'palette': ['blue', 'cyan', 'green']}
+                vis_params_suitability = {'min': 0, 'max': 1, 'palette': ['red', 'green']} # Red=Bad, Green=Good
+
+                if valid_model:
                     classifier = ee.Classifier.smileRandomForest(numberOfTrees=50) \
                         .train(
                             features=training_data,
@@ -904,24 +914,28 @@ else:
                             inputProperties=feature_names
                         )
                     classified_suitability = processed_features.classify(classifier)
-                    
-                    # Visualization
-                    vis_params_slope = {'min': 0, 'max': 30, 'palette': ['green', 'yellow', 'red']}
-                    vis_params_rain = {'min': 0, 'max': 2000, 'palette': ['blue', 'cyan', 'green']}
-                    vis_params_suitability = {'min': 0, 'max': 1, 'palette': ['red', 'green']} # Red=Bad, Green=Good
+                    st.toast("Random Forest Model Trained Successfully!")
+                    mode_info = "Random Forest (ML)"
+                else:
+                    st.warning("⚠️ Insufficient training points for ML. Switching to Heuristic Rule-Based Mode.")
+                    # Heuristic Fallback: Simple logical selection (Rule-Based)
+                    # Good = Slope < 10 AND Flow > 40
+                    rule_based = processed_features.select('slope').lt(10).And(
+                                 processed_features.select('flow_accumulation').gt(40))
+                    classified_suitability = rule_based.rename('suitability')
+                    mode_info = "Heuristic (Rule-Based)"
 
-                    m.addLayer(dem, {'min': 0, 'max': 1000, 'palette': ['black', 'white']}, 'DEM (Elevation)', False)
-                    m.addLayer(slope, vis_params_slope, 'Slope', False)
-                    m.addLayer(flow_acc, {'min': 0, 'max': 500, 'palette': ['white', 'blue']}, 'Flow Accumulation', False)
-                    m.addLayer(classified_suitability, vis_params_suitability, 'Predicted Suitability (RF)', True)
+                # Visualization
+                m.addLayer(dem, {'min': 0, 'max': 1000, 'palette': ['black', 'white']}, 'DEM (Elevation)', False)
+                m.addLayer(slope, vis_params_slope, 'Slope', False)
+                m.addLayer(flow_acc, {'min': 0, 'max': 500, 'palette': ['white', 'blue']}, 'Flow Accumulation', False)
+                m.addLayer(classified_suitability, vis_params_suitability, 'Predicted Suitability', True)
+                
+                if valid_model:
                     m.addLayer(training_data, {'color': 'blue'}, 'Training Samples (Synthetic)', False)
 
-                    image_to_export = classified_suitability
-                    vis_export = vis_params_suitability
-
-                else:
-                    st.error("❌ Not enough valid terrain features found to train the model for this specific ROI. Try a larger area or different terrain.")
-                    classified_suitability = ee.Image(0) # Empty image
+                image_to_export = classified_suitability
+                vis_export = vis_params_suitability
 
                 # 7. ANALYTICS (Right Column)
                 with col_res:
@@ -929,7 +943,7 @@ else:
                     st.markdown('<div class="card-label">🧠 DECISION SUPPORT</div>', unsafe_allow_html=True)
                     
                     st.success(f"✅ Target: {p['rwh_type']}")
-                    st.info("✅ Algorithm: Random Forest (50 Trees)")
+                    st.info(f"✅ Algorithm: {mode_info}")
                     
                     # Statistics
                     try:
