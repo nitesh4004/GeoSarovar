@@ -26,140 +26,116 @@ from shapely.geometry import shape as shape_geom
 import segmentation_models_pytorch as smp
 from rasterio.transform import Affine
 
-# --- 1. PAGE CONFIG & LAYOUT ---
+# --- 1. PAGE CONFIG ---
 st.set_page_config(
-    page_title="GeoSarovar - Environmental Analysis",
-    page_icon="🌿",
+    page_title="GeoSarovar - Water Intelligence",
+    page_icon="💧",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- 2. CSS STYLING (Strictly Matching Screenshot) ---
+# --- 2. CSS STYLING ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;600&display=swap');
 
     :root {
-        --primary-green: #2E7D32;  /* The Header Green */
-        --accent-green: #43A047;   /* Lighter Green for buttons */
-        --bg-gray: #F8F9FA;
-        --border-color: #E9ECEF;
-        --text-dark: #212529;
+        --bg-color: #ffffff;
+        --accent-primary: #00204a;
+        --accent-secondary: #005792;
+        --text-primary: #00204a;
     }
 
     .stApp {
-        background-color: #FFFFFF;
+        background-color: var(--bg-color);
         font-family: 'Inter', sans-serif;
+        color: var(--text-primary);
     }
 
-    /* 1. HEADER STYLING */
-    .dashboard-header {
-        background-color: var(--primary-green);
-        padding: 1.5rem;
-        border-radius: 5px;
-        color: white;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    .header-title {
-        font-size: 24px;
-        font-weight: 700;
-        margin: 0;
-        text-align: center;
-    }
-    .header-subtitle {
-        font-size: 14px;
-        font-weight: 400;
-        margin-top: 5px;
-        text-align: center;
-        font-style: italic;
-        opacity: 0.9;
+    h1, h2, h3, .title-font {
+        font-family: 'Rajdhani', sans-serif !important;
+        color: var(--accent-primary) !important;
     }
 
-    /* 2. SIDEBAR STYLING */
+    /* Sidebar Styling */
     section[data-testid="stSidebar"] {
-        background-color: var(--bg-gray);
-        border-right: 1px solid var(--border-color);
+        background-color: #f8f9fa;
+        border-right: 1px solid #d1d9e6;
     }
-    .sidebar-title {
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--text-dark);
-        margin-bottom: 15px;
-        border-bottom: 2px solid #DEE2E6;
-        padding-bottom: 10px;
-    }
-    
-    /* 3. BUTTON STYLING */
+
+    /* Primary Buttons */
     div.stButton > button:first-child {
-        background-color: var(--primary-green);
-        color: white;
-        font-weight: 600;
-        border-radius: 4px;
+        background: var(--accent-primary);
         border: none;
-        width: 100%;
+        color: white !important;
+        font-family: 'Rajdhani', sans-serif;
+        font-weight: 700;
+        letter-spacing: 1px;
         padding: 0.6rem;
+        border-radius: 6px;
+        width: 100%;
+        transition: all 0.3s ease;
     }
     div.stButton > button:first-child:hover {
-        background-color: var(--accent-green);
+        background: var(--accent-secondary);
+        transform: translateY(-2px);
     }
 
-    /* 4. TABS STYLING */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: transparent;
+    /* HUD Header */
+    .hud-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #ffffff;
+        border-bottom: 2px solid var(--accent-primary);
+        padding: 15px 25px;
+        border-radius: 0 0 10px 10px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
     }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #FFFFFF;
-        border: 1px solid #DEE2E6;
-        border-bottom: none;
-        border-radius: 4px 4px 0 0;
-        padding: 8px 16px;
-        font-weight: 600;
-        color: #495057;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #3b6e8f !important; /* Blue-ish active tab from image */
-        color: white !important;
-        border-color: #3b6e8f !important;
+    .hud-title {
+        font-family: 'Rajdhani', sans-serif;
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: var(--accent-primary);
     }
 
-    /* 5. CARD & PANEL STYLING */
-    .panel-box {
-        border: 1px solid #DEE2E6;
-        border-radius: 5px;
-        padding: 15px;
-        background: white;
+    /* Cards */
+    .glass-card {
+        background: #ffffff;
+        border: 1px solid #e0e0e0;
+        padding: 20px;
+        border-radius: 12px;
         margin-bottom: 15px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
     }
-    .panel-title {
-        font-size: 14px;
+    .card-label {
+        font-family: 'Rajdhani', sans-serif;
+        color: var(--accent-primary);
+        font-size: 1.1rem;
         font-weight: 700;
-        color: var(--text-dark);
-        margin-bottom: 10px;
-        border-bottom: 1px solid #F1F3F5;
-        padding-bottom: 5px;
+        text-transform: uppercase;
+        border-bottom: 2px solid #f0f0f0;
+        padding-bottom: 8px;
+        margin-bottom: 12px;
     }
-
-    /* 6. STATS METRICS */
-    .stat-box {
-        background: #F8F9FA;
-        border: 1px solid #DEE2E6;
-        border-radius: 5px;
-        padding: 10px;
-        text-align: center;
+    .alert-card {
+        background: #fff5f5;
+        border: 1px solid #fc8181;
+        padding: 15px;
+        border-radius: 12px;
+        margin-bottom: 15px;
+        margin-top: 15px;
     }
-    .stat-label {
-        font-size: 12px;
-        color: #6C757D;
+    .date-badge {
+        background-color: #eef2f6;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.85rem;
         font-weight: 600;
-    }
-    .stat-value {
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--text-dark);
+        color: #00204a;
         margin-top: 5px;
+        display: inline-block;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -181,55 +157,78 @@ except Exception as e:
 if 'calculated' not in st.session_state: st.session_state['calculated'] = False
 if 'roi' not in st.session_state: st.session_state['roi'] = None
 if 'mode' not in st.session_state: st.session_state['mode'] = "📍 RWH Site Suitability"
+if 'dl_result' not in st.session_state: st.session_state['dl_result'] = None
 
-# --- 4. HELPERS (DL & UTILS) ---
+# --- 4. DL MODEL HELPERS (From Inference Utils) ---
 
 def build_model():
-    model = smp.Unet(encoder_name="resnet34", encoder_weights=None, in_channels=6, classes=2)
+    """Construct the segmentation model architecture (U-Net ResNet-34)."""
+    model = smp.Unet(
+        encoder_name="resnet34",
+        encoder_weights=None,
+        in_channels=6,
+        classes=2,
+    )
     return model
 
 @st.cache_resource
 def load_dl_model_from_drive(device="cpu"):
+    """Download and load the model from GDrive."""
     model_path = "water_unet_best.pth"
     file_id = "1-v-SLRDr3OiiKAnQeebpwQzIPDpLamsW"
     url = f'https://drive.google.com/uc?id={file_id}'
+
     if not os.path.exists(model_path):
-        with st.spinner("Downloading AI Model..."):
+        with st.spinner("Downloading Model weights from Server (One time)..."):
             gdown.download(url, model_path, quiet=False)
+
     checkpoint = torch.load(model_path, map_location=device)
+
     if isinstance(checkpoint, torch.nn.Module):
         model = checkpoint
     else:
         model = build_model()
         model.load_state_dict(checkpoint, strict=False)
+
     model.to(device)
     model.eval()
     return model
 
+def preprocess_tile(tile):
+    tile = tile.astype(np.float32)
+    tile = tile / 255.0
+    return tile
+
 def predict_large_image(model, image, device="cpu", tile_size=512, overlap=64):
-    def preprocess_tile(tile): return (tile.astype(np.float32) / 255.0)
     _, H, W = image.shape
     pad_H = (tile_size - H % tile_size) if H % tile_size != 0 else 0
     pad_W = (tile_size - W % tile_size) if W % tile_size != 0 else 0
+
     image_pad = np.pad(image, ((0, 0), (0, pad_H), (0, pad_W)), mode="constant", constant_values=0)
     _, H_pad, W_pad = image_pad.shape
+
     stride = tile_size - overlap
     prob_sum = np.zeros((H_pad, W_pad), dtype=np.float32)
     count = np.zeros((H_pad, W_pad), dtype=np.float32)
+
     model.eval()
     with torch.no_grad():
         for y0 in range(0, H_pad, stride):
             for x0 in range(0, W_pad, stride):
                 y1 = min(y0 + tile_size, H_pad)
                 x1 = min(x0 + tile_size, W_pad)
+
                 tile = image_pad[:, y0:y1, x0:x1]
                 tile = preprocess_tile(tile)
                 tile_tensor = torch.from_numpy(tile).unsqueeze(0).to(device)
+
                 out = model(tile_tensor)
                 if out.shape[1] > 1: out = out[:, 1:2, :, :]
                 prob = torch.sigmoid(out).cpu().numpy()[0, 0]
+
                 prob_sum[y0:y1, x0:x1] += prob
                 count[y0:y1, x0:x1] += 1.0
+
     count[count == 0] = 1.0
     prob_full = prob_sum / count
     prob_full = prob_full[:H, :W]
@@ -242,16 +241,104 @@ def mask_to_vector(mask, transform, crs):
     geoms = []
     for geom, value in results:
         if value == 1: geoms.append(shape_geom(geom))
-    if len(geoms) == 0: return gpd.GeoDataFrame({"id": [], "area_km2": [], "geometry": []}, crs=crs)
+
+    if len(geoms) == 0:
+        return gpd.GeoDataFrame({"id": [], "area_km2": [], "geometry": []}, crs=crs)
+
     gdf = gpd.GeoDataFrame({"geometry": geoms}, crs=crs)
     gdf["id"] = range(1, len(gdf) + 1)
+
     if crs and not isinstance(crs, str) and crs.is_geographic:
         gdf_proj = gdf.to_crs(epsg=3857)
         gdf["area_m2"] = gdf_proj.geometry.area
     else:
         gdf["area_m2"] = gdf.geometry.area
+
     gdf["area_km2"] = (gdf["area_m2"] / 1_000_000).round(4)
-    return gdf.sort_values("area_km2", ascending=False).reset_index(drop=True)
+    gdf = gdf.sort_values("area_km2", ascending=False).reset_index(drop=True)
+    return gdf
+
+def build_planetary_computer_image_for_aoi(aoi_geojson, satellite_type: str, months_back: int = 6):
+    import pystac_client
+    import planetary_computer
+    import stackstac
+
+    # Handle GeoJSON input logic
+    if isinstance(aoi_geojson, dict) and "geometry" in aoi_geojson:
+        geom_dict = aoi_geojson["geometry"]
+    else:
+        geom_dict = aoi_geojson
+
+    coords = geom_dict["coordinates"][0] if geom_dict['type'] == 'Polygon' else geom_dict["coordinates"][0][0]
+    # Simple bbox extract
+    lons = [c[0] for c in coords]
+    lats = [c[1] for c in coords]
+    bbox_wgs84 = [min(lons), min(lats), max(lons), max(lats)]
+
+    # Web Mercator Transform
+    from pyproj import Transformer
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+    min_x, min_y = transformer.transform(bbox_wgs84[0], bbox_wgs84[1])
+    max_x, max_y = transformer.transform(bbox_wgs84[2], bbox_wgs84[3])
+    bbox_mercator = [min_x, min_y, max_x, max_y]
+
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=months_back * 30)
+    date_range = f"{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}"
+
+    catalog = pystac_client.Client.open(
+        "https://planetarycomputer.microsoft.com/api/stac/v1",
+        modifier=planetary_computer.sign_inplace,
+    )
+
+    if "Sentinel-2" in satellite_type:
+        collection = "sentinel-2-l2a"
+        bands = ["B02", "B03", "B04", "B08", "B11", "B12"]
+        scale = 10
+    else: # Landsat
+        collection = "landsat-c2-l2"
+        bands = ["coastal", "blue", "green", "red", "nir08", "swir16"]
+        scale = 30
+
+    search = catalog.search(
+        collections=[collection], bbox=bbox_wgs84, datetime=date_range,
+        query={"eo:cloud_cover": {"lt": 20}},
+    )
+    items = list(search.items())
+    image_count = len(items)
+    if image_count == 0: return None, None, scale, 0
+
+    items_sorted = sorted(items, key=lambda x: x.properties.get("eo:cloud_cover", 100))[:10]
+
+    stack = stackstac.stack(
+        items_sorted, assets=bands, bounds=bbox_mercator, epsg=3857, resolution=scale,
+    )
+
+    import dask
+    with dask.config.set(**{'array.slicing.split_large_chunks': True}):
+        composite = stack.median(dim="time").compute()
+
+    image = composite.values
+    # Transform creation
+    x_coords = composite.x.values
+    y_coords = composite.y.values
+    x_res = float(x_coords[1] - x_coords[0]) if len(x_coords) > 1 else scale
+    y_res = float(y_coords[1] - y_coords[0]) if len(y_coords) > 1 else -scale
+    transform = Affine(x_res, 0, float(x_coords[0]), 0, y_res, float(y_coords[0]))
+
+    image = np.nan_to_num(image, nan=0.0)
+    image = np.clip(image, 0, 65535).astype(np.uint16)
+
+    profile = {
+        'driver': 'GTiff', 'height': image.shape[1], 'width': image.shape[2],
+        'count': image.shape[0], 'dtype': 'uint16', 'crs': 'EPSG:3857', 'transform': transform,
+    }
+
+    from rasterio.coords import BoundingBox
+    bounds_tuple = rasterio.transform.array_bounds(image.shape[1], image.shape[2], transform)
+    bounds = BoundingBox(*bounds_tuple)
+
+    return image, profile, transform, 'EPSG:3857', bounds, image_count
 
 def read_geotiff(path):
     with rasterio.open(path) as src:
@@ -262,26 +349,36 @@ def read_geotiff(path):
         bounds = src.bounds
     return image, profile, transform, crs, bounds
 
+# --- 5. APP HELPER FUNCTIONS (Existing) ---
+
 def parse_kml(content):
     try:
         if isinstance(content, bytes): content = content.decode('utf-8')
         match = re.search(r'<coordinates>(.*?)</coordinates>', content, re.DOTALL | re.IGNORECASE)
-        if match: 
-            raw = match.group(1).strip().split()
-            coords = [[float(x.split(',')[0]), float(x.split(',')[1])] for x in raw if len(x.split(',')) >= 2]
-            return ee.Geometry.Polygon([coords]) if len(coords) > 2 else None
+        if match: return process_coords(match.group(1))
+        root = ET.fromstring(content)
+        for elem in root.iter():
+            if elem.tag.lower().endswith('coordinates') and elem.text:
+                return process_coords(elem.text)
     except: pass
     return None
+
+def process_coords(text):
+    raw = text.strip().split()
+    coords = [[float(x.split(',')[0]), float(x.split(',')[1])] for x in raw if len(x.split(',')) >= 2]
+    return ee.Geometry.Polygon([coords]) if len(coords) > 2 else None
 
 @st.cache_data(show_spinner=False)
 def load_admin_data(url, is_gdrive=False):
     try:
         temp_dir = tempfile.mkdtemp()
         zip_path = os.path.join(temp_dir, "data.zip")
-        if is_gdrive: gdown.download(url, zip_path, quiet=True, fuzzy=True)
+        if is_gdrive:
+            gdown.download(url, zip_path, quiet=True, fuzzy=True)
         else:
-            r = requests.get(url)
-            with open(zip_path, "wb") as f: f.write(r.content)
+            response = requests.get(url, stream=True)
+            with open(zip_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
         with zipfile.ZipFile(zip_path, 'r') as zip_ref: zip_ref.extractall(temp_dir)
         for root, dirs, files in os.walk(temp_dir):
             for file in files:
@@ -291,8 +388,8 @@ def load_admin_data(url, is_gdrive=False):
                     gdf.rename(columns=col_map, inplace=True)
                     if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
                     return gdf
+        return None
     except: return None
-    return None
 
 def geopandas_to_ee(gdf_row):
     try:
@@ -301,472 +398,880 @@ def geopandas_to_ee(gdf_row):
         return ee.Geometry(geom)
     except: return None
 
-# --- 5. SIDEBAR (MATCHING SCREENSHOT) ---
-with st.sidebar:
-    st.markdown('<div class="sidebar-title">Data Filters</div>', unsafe_allow_html=True)
-    
-    # 1. Dataset Selection (Module Selector)
-    st.markdown("**Select Dataset (Module)**")
-    app_mode = st.selectbox(
-        "Choose Analysis Type",
-        ["📍 RWH Site Suitability",
-         "⚠️ Encroachment (S1 SAR)",
-         "Flood Extent Mapping",
-         "🧪 Water Quality",
-         "🤖 DL Water Segmentation"],
-        label_visibility="collapsed"
+def calculate_area_by_class(image, region, scale):
+    area_image = ee.Image.pixelArea().addBands(image)
+    stats = area_image.reduceRegion(
+        reducer=ee.Reducer.sum().group(groupField=1, groupName='class_index'),
+        geometry=region, scale=scale, maxPixels=1e10, bestEffort=True
     )
-    
-    st.markdown("---")
-    
-    # 2. Region Selection
-    st.markdown("**Select Region**")
-    roi_method = st.radio("Selection Mode", ["Select Admin Boundary", "Upload KML", "Point & Buffer"], label_visibility="collapsed")
-    
-    new_roi = None
-    if roi_method == "Upload KML":
-        kml = st.file_uploader("Upload KML", type=['kml'])
-        if kml: new_roi = parse_kml(kml.read())
-        
-    elif roi_method == "Select Admin Boundary":
-        admin_level = st.selectbox("Granularity", ["Districts", "Subdistricts", "States"])
-        data_url = None
-        is_drive = False
-        if admin_level == "Districts":
-            data_url = 'https://drive.google.com/uc?id=1tMyiUheQBcwwPwZQla67PwC5-AqenTmv'; is_drive = True
-        elif admin_level == "Subdistricts":
-            data_url = 'https://drive.google.com/uc?id=18lMyt2j3Xjz_Qk_2Kzppr8EVlVDx_yOv'; is_drive = True
-        elif admin_level == "States":
-            data_url = "https://github.com/nitesh4004/GeoFormatX/raw/main/STATE_BOUNDARY.zip"; is_drive = False
-            
-        if data_url:
-            with st.spinner("Loading Admin Data..."):
-                gdf = load_admin_data(data_url, is_drive)
-            if gdf is not None and 'STATE' in gdf.columns:
-                states = sorted(gdf['STATE'].astype(str).unique())
-                sel_state = st.selectbox("State", states)
-                gdf = gdf[gdf['STATE'] == sel_state]
-                if 'District' in gdf.columns and not gdf.empty:
-                    dists = sorted(gdf['District'].astype(str).unique())
-                    sel_dist = st.selectbox("District", dists)
-                    gdf = gdf[gdf['District'] == sel_dist]
-                    if 'Subdistrict' in gdf.columns and not gdf.empty:
-                        subs = sorted(gdf['Subdistrict'].astype(str).unique())
-                        sel_sub = st.selectbox("Subdistrict", subs)
-                        gdf = gdf[gdf['Subdistrict'] == sel_sub]
-                if not gdf.empty:
-                    new_roi = geopandas_to_ee(gdf.iloc[[0]])
-                    st.success(f"Locked: {len(gdf)} Feature")
+    groups = stats.get('groups').getInfo()
+    data = []
+    total_area = 0
+    if not groups: return pd.DataFrame()
+    for item in groups:
+        area_ha = item['sum'] / 10000.0
+        total_area += area_ha
+        data.append({"Class": f"Class {int(item['class_index'])}", "Area (ha)": area_ha})
+    df = pd.DataFrame(data)
+    if not df.empty:
+        df = df.sort_values(by="Area (ha)", ascending=False)
+        df["%"] = ((df["Area (ha)"] / total_area) * 100).round(1)
+        df["Area (ha)"] = df["Area (ha)"].round(2)
+    return df
 
-    elif roi_method == "Point & Buffer":
-        c1, c2 = st.columns(2)
-        lat = c1.number_input("Lat", value=20.59)
-        lon = c2.number_input("Lon", value=78.96)
-        rad = st.number_input("Radius (m)", value=5000)
-        new_roi = ee.Geometry.Point([lon, lat]).buffer(rad).bounds()
-
-    if new_roi:
-        st.session_state['roi'] = new_roi.simplify(maxError=50)
-
-    st.markdown("---")
-    
-    # 3. Dynamic Parameters
-    st.markdown("**Parameters**")
-    params = {}
-    
-    if app_mode == "📍 RWH Site Suitability":
-        rwh_type = st.selectbox("Structure Type", ("Check Dam", "Farm Pond", "Percolation Tank"))
-        year = st.slider("Analysis Year", 2018, 2024, 2023)
-        params = {'rwh_type': rwh_type, 'start': f'{year}-06-01', 'end': f'{year}-10-30'}
-        
-    elif app_mode == "⚠️ Encroachment (S1 SAR)":
-        orbit = st.selectbox("Orbit", ["BOTH", "ASCENDING", "DESCENDING"])
-        d1_start = st.date_input("Base Start", datetime(2018, 6, 1))
-        d1_end = st.date_input("Base End", datetime(2018, 9, 30))
-        d2_start = st.date_input("Curr Start", datetime(2024, 6, 1))
-        d2_end = st.date_input("Curr End", datetime(2024, 9, 30))
-        params = {'d1_start': str(d1_start), 'd1_end': str(d1_end), 'd2_start': str(d2_start), 'd2_end': str(d2_end), 'orbit': orbit}
-        
-    elif app_mode == "Flood Extent Mapping":
-        orbit = st.selectbox("Orbit", ["BOTH", "ASCENDING", "DESCENDING"])
-        pre_start = st.date_input("Pre Start", datetime(2023, 4, 1))
-        pre_end = st.date_input("Pre End", datetime(2023, 6, 1))
-        post_start = st.date_input("Post Start", datetime(2023, 9, 29))
-        post_end = st.date_input("Post End", datetime(2023, 10, 15))
-        threshold = st.slider("Threshold", 1.0, 1.5, 1.25)
-        params = {'pre_start': str(pre_start), 'pre_end': str(pre_end), 'post_start': str(post_start), 'post_end': str(post_end), 'threshold': threshold, 'orbit': orbit}
-
-    elif app_mode == "🧪 Water Quality":
-        wq_param = st.selectbox("Parameter", ["Turbidity (NDTI)", "Total Suspended Solids (TSS)", "Cyanobacteria", "Chlorophyll-a", "CDOM"])
-        wq_start = st.date_input("Start", datetime.now()-timedelta(days=90))
-        wq_end = st.date_input("End", datetime.now())
-        cloud_thresh = st.slider("Max Cloud %", 5, 50, 20)
-        params = {'param': wq_param, 'start': str(wq_start), 'end': str(wq_end), 'cloud': cloud_thresh}
-
-    elif app_mode == "🤖 DL Water Segmentation":
-        dl_source = st.radio("Input", ["Planetary Computer (ROI)", "Upload TIFF"])
-        if dl_source == "Planetary Computer (ROI)":
-            sat_type = st.selectbox("Sat", ["Sentinel-2", "Landsat 8"])
-            params = {'source': 'pc', 'sat_type': sat_type}
+# --- ADVANCED STATIC MAP GENERATOR ---
+def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
+    try:
+        if isinstance(roi, ee.Geometry):
+            try:
+                roi_json = roi.getInfo()
+                roi_bounds = roi.bounds().getInfo()['coordinates'][0]
+            except: return None
         else:
-            uf = st.file_uploader("Upload", type=["tif"])
-            params = {'source': 'upload', 'file': uf}
+            roi_json = roi
+            roi_bounds = roi['coordinates'][0]
+
+        lons = [p[0] for p in roi_bounds]
+        lats = [p[1] for p in roi_bounds]
+        min_lon, max_lon = min(lons), max(lons)
+        min_lat, max_lat = min(lats), max(lats)
+
+        width_deg = max_lon - min_lon
+        height_deg = max_lat - min_lat
+        if height_deg == 0: height_deg = 0.001
+
+        aspect_ratio = (width_deg * np.cos(np.radians((min_lat + max_lat) / 2))) / height_deg
+        fig_width = 12
+        fig_height = fig_width / aspect_ratio
+        if fig_height > 20: fig_height = 20
+        if fig_height < 4: fig_height = 4
+
+        # Background Imagery (Sentinel-2 Cloud Free)
+        s2_background = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")\
+            .filterBounds(roi).filterDate('2023-01-01', '2023-12-31')\
+            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))\
+            .median().visualize(min=0, max=3000, bands=['B4', 'B3', 'B2'])
+
+        if 'palette' in vis_params or 'min' in vis_params:
+            analysis_vis = image.visualize(**vis_params)
+        else:
+            analysis_vis = image
+
+        final_image = s2_background.blend(analysis_vis)
+
+        thumb_url = final_image.getThumbURL({
+            'region': roi_json, 'dimensions': 1000, 'format': 'png', 'crs': 'EPSG:4326'
+        })
+
+        response = requests.get(thumb_url, timeout=120)
+        if response.status_code != 200: return None
+
+        img_pil = Image.open(BytesIO(response.content))
+
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300, facecolor='#ffffff')
+        extent = [min_lon, max_lon, min_lat, max_lat]
+        ax.imshow(img_pil, extent=extent, aspect='auto')
+        ax.set_title(title, fontsize=18, fontweight='bold', pad=20, color='#00204a')
+
+        # Grid and Ticks
+        ax.tick_params(colors='black', labelsize=10)
+        for spine in ax.spines.values(): spine.set_edgecolor('black')
+
+        # Legend Logic
+        if is_categorical and class_names and 'palette' in vis_params:
+            patches = [mpatches.Patch(color=c, label=n) for n, c in zip(class_names, vis_params['palette'])]
+            legend = ax.legend(handles=patches, loc='upper center', bbox_to_anchor=(0.5, -0.08),
+                             frameon=False, ncol=min(len(class_names), 4))
+        elif cmap_colors and 'min' in vis_params:
+            cmap = mcolors.LinearSegmentedColormap.from_list("custom", cmap_colors)
+            norm = mcolors.Normalize(vmin=vis_params['min'], vmax=vis_params['max'])
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
+            cax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+            cbar = plt.colorbar(sm, cax=cax)
+            cbar.set_label('Index Value', color='black', fontsize=12)
+
+        buf = BytesIO()
+        plt.savefig(buf, format='jpg', bbox_inches='tight', facecolor='#ffffff')
+        buf.seek(0)
+        plt.close(fig)
+        return buf
+    except: return None
+
+# --- 6. SIDEBAR ---
+with st.sidebar:
+    st.image("https://raw.githubusercontent.com/nitesh4004/GeoSarovar/main/geosarovar.png", use_container_width=True)
+    st.markdown("### 1. Select Module")
+    app_mode = st.radio("Choose Functionality:",
+                        ["📍 RWH Site Suitability",
+                         "⚠️ Encroachment (S1 SAR)",
+                         "Flood Extent Mapping",
+                         "🧪 Water Quality",
+                         "🤖 DL Water Segmentation"],
+                        label_visibility="collapsed")
+    st.markdown("---")
+
+    # Specific Logic for DL Module inputs
+    if app_mode == "🤖 DL Water Segmentation":
+        st.markdown("### 2. DL Input Source")
+        dl_source = st.radio("Input Type", ["Use ROI (Planetary Computer)", "Upload GeoTIFF"], label_visibility="collapsed")
+
+        params = {}
+        if dl_source == "Use ROI (Planetary Computer)":
+            st.markdown("### 3. Location (ROI)")
+            roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
+            new_roi = None
+
+            if roi_method == "Upload KML":
+                kml = st.file_uploader("Upload KML", type=['kml'])
+                if kml: new_roi = parse_kml(kml.read())
+            elif roi_method == "Select Admin Boundary":
+                admin_level = st.selectbox("Granularity", ["Districts", "Subdistricts", "States"])
+                data_url = None
+                is_drive = False
+                if admin_level == "Districts":
+                    data_url = 'https://drive.google.com/uc?id=1tMyiUheQBcwwPwZQla67PwC5-AqenTmv'; is_drive = True
+                elif admin_level == "Subdistricts":
+                    data_url = 'https://drive.google.com/uc?id=18lMyt2j3Xjz_Qk_2Kzppr8EVlVDx_yOv'; is_drive = True
+                elif admin_level == "States":
+                    data_url = "https://github.com/nitesh4004/GeoFormatX/raw/main/STATE_BOUNDARY.zip"; is_drive = False
+                if data_url:
+                    with st.spinner("Fetching Data..."):
+                        gdf = load_admin_data(data_url, is_drive)
+                    if gdf is not None:
+                        if 'STATE' in gdf.columns:
+                            states = sorted(gdf['STATE'].astype(str).unique())
+                            sel_state = st.selectbox("State", states)
+                            gdf = gdf[gdf['STATE'] == sel_state]
+                            if 'District' in gdf.columns and not gdf.empty:
+                                dists = sorted(gdf['District'].astype(str).unique())
+                                sel_dist = st.selectbox("District", dists)
+                                gdf = gdf[gdf['District'] == sel_dist]
+                                if 'Subdistrict' in gdf.columns and not gdf.empty:
+                                    subs = sorted(gdf['Subdistrict'].astype(str).unique())
+                                    sel_sub = st.selectbox("Subdistrict", subs)
+                                    gdf = gdf[gdf['Subdistrict'] == sel_sub]
+                        if not gdf.empty:
+                            new_roi = geopandas_to_ee(gdf.iloc[[0]])
+                            st.info(f"Selected: {len(gdf)} Feature")
+            elif roi_method == "Point & Buffer":
+                c1, c2 = st.columns(2)
+                lat = c1.number_input("Lat", value=20.59)
+                lon = c2.number_input("Lon", value=78.96)
+                rad = st.number_input("Radius (m)", value=5000)
+                new_roi = ee.Geometry.Point([lon, lat]).buffer(rad).bounds()
+
+            if new_roi:
+                st.session_state['roi'] = new_roi.simplify(maxError=50)
+                st.success("ROI Locked ✅")
+
+            sat_type = st.selectbox("Satellite", ["Sentinel-2", "Landsat 8", "Landsat 9"])
+            params = {'source': 'pc', 'sat_type': sat_type}
+
+        else: # Upload GeoTIFF
+            uploaded_file = st.file_uploader("Upload 6-Band GeoTIFF", type=["tif", "tiff"])
+            params = {'source': 'upload', 'file': uploaded_file}
+
+    # Standard GEE Input Logic for other modules
+    else:
+        st.markdown("### 2. Location (ROI)")
+        roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
+        new_roi = None
+
+        if roi_method == "Upload KML":
+            kml = st.file_uploader("Upload KML", type=['kml'])
+            if kml: new_roi = parse_kml(kml.read())
+        elif roi_method == "Select Admin Boundary":
+            admin_level = st.selectbox("Granularity", ["Districts", "Subdistricts", "States"])
+            data_url = None
+            is_drive = False
+            if admin_level == "Districts":
+                data_url = 'https://drive.google.com/uc?id=1tMyiUheQBcwwPwZQla67PwC5-AqenTmv'; is_drive = True
+            elif admin_level == "Subdistricts":
+                data_url = 'https://drive.google.com/uc?id=18lMyt2j3Xjz_Qk_2Kzppr8EVlVDx_yOv'; is_drive = True
+            elif admin_level == "States":
+                data_url = "https://github.com/nitesh4004/GeoFormatX/raw/main/STATE_BOUNDARY.zip"; is_drive = False
+            if data_url:
+                with st.spinner("Fetching Data..."):
+                    gdf = load_admin_data(data_url, is_drive)
+                if gdf is not None:
+                    if 'STATE' in gdf.columns:
+                        states = sorted(gdf['STATE'].astype(str).unique())
+                        sel_state = st.selectbox("State", states)
+                        gdf = gdf[gdf['STATE'] == sel_state]
+                        if 'District' in gdf.columns and not gdf.empty:
+                            dists = sorted(gdf['District'].astype(str).unique())
+                            sel_dist = st.selectbox("District", dists)
+                            gdf = gdf[gdf['District'] == sel_dist]
+                            if 'Subdistrict' in gdf.columns and not gdf.empty:
+                                subs = sorted(gdf['Subdistrict'].astype(str).unique())
+                                sel_sub = st.selectbox("Subdistrict", subs)
+                                gdf = gdf[gdf['Subdistrict'] == sel_sub]
+                    if not gdf.empty:
+                        new_roi = geopandas_to_ee(gdf.iloc[[0]])
+                        st.info(f"Selected: {len(gdf)} Feature")
+        elif roi_method == "Point & Buffer":
+            c1, c2 = st.columns(2)
+            lat = c1.number_input("Lat", value=20.59)
+            lon = c2.number_input("Lon", value=78.96)
+            rad = st.number_input("Radius (m)", value=5000)
+            new_roi = ee.Geometry.Point([lon, lat]).buffer(rad).bounds()
+
+        if new_roi:
+            st.session_state['roi'] = new_roi.simplify(maxError=50)
+            st.success("ROI Locked ✅")
+        st.markdown("---")
+
+        params = {}
+        if app_mode == "📍 RWH Site Suitability":
+            st.markdown("### 3. Planning Parameters")
+            rwh_type = st.selectbox("Structure Type", ("Check Dam", "Farm Pond", "Percolation Tank"))
+            year = st.slider("Analysis Year", 2018, 2024, 2023)
+            
+            start_date = f'{year}-06-01'
+            end_date = f'{year}-10-30' # Monsoon season
+            st.info(f"Period: {start_date} to {end_date}")
+            st.caption("Model: Random Forest Classifier")
+            
+            params = {
+                'rwh_type': rwh_type,
+                'start': start_date, 
+                'end': end_date
+            }
+
+        elif app_mode == "⚠️ Encroachment (S1 SAR)":
+            st.markdown("### 3. Comparison Dates")
+            orbit = st.radio("Orbit Pass", ["BOTH", "ASCENDING", "DESCENDING"])
+            st.markdown("**Initial Period (Baseline)**")
+            col1, col2 = st.columns(2)
+            d1_start = col1.date_input("Start 1", datetime(2018, 6, 1))
+            d1_end = col2.date_input("End 1", datetime(2018, 9, 30))
+            st.markdown("**Final Period (Current)**")
+            col3, col4 = st.columns(2)
+            d2_start = col3.date_input("Start 2", datetime(2024, 6, 1))
+            d2_end = col4.date_input("End 2", datetime(2024, 9, 30))
+            params = {'d1_start': d1_start.strftime("%Y-%m-%d"), 'd1_end': d1_end.strftime("%Y-%m-%d"), 'd2_start': d2_start.strftime("%Y-%m-%d"), 'd2_end': d2_end.strftime("%Y-%m-%d"), 'orbit': orbit}
+
+        elif app_mode == "Flood Extent Mapping":
+            st.markdown("### 3. Flood Event Details")
+            orbit = st.radio("Orbit Pass", ["BOTH", "ASCENDING", "DESCENDING"])
+            st.markdown("**Before Flood (Dry)**")
+            col1, col2 = st.columns(2)
+            pre_start = col1.date_input("Pre Start", datetime(2023, 4, 1))
+            pre_end = col2.date_input("Pre End", datetime(2023, 6, 1))
+            st.markdown("**After Flood (Wet)**")
+            col3, col4 = st.columns(2)
+            post_start = col3.date_input("Post Start", datetime(2023, 9, 29))
+            post_end = col4.date_input("Post End", datetime(2023, 10, 15))
+            threshold = st.slider("Difference Threshold", 1.0, 1.5, 1.25, 0.05)
+            params = {'pre_start': pre_start.strftime("%Y-%m-%d"), 'pre_end': pre_end.strftime("%Y-%m-%d"), 'post_start': post_start.strftime("%Y-%m-%d"), 'post_end': post_end.strftime("%Y-%m-%d"), 'threshold': threshold, 'orbit': orbit}
+
+        elif app_mode == "🧪 Water Quality":
+            st.markdown("### 3. Monitoring Config")
+            wq_param = st.selectbox("Parameter", ["Turbidity (NDTI)", "Total Suspended Solids (TSS)", "Cyanobacteria Index", "Chlorophyll-a", "CDOM (Organic Matter)"])
+            st.markdown("**Timeframe**")
+            col1, col2 = st.columns(2)
+            wq_start = col1.date_input("Start", datetime.now()-timedelta(days=90))
+            wq_end = col2.date_input("End", datetime.now())
+            cloud_thresh = st.slider("Max Cloud Cover %", 5, 50, 20)
+            params = {'param': wq_param, 'start': wq_start.strftime("%Y-%m-%d"), 'end': wq_end.strftime("%Y-%m-%d"), 'cloud': cloud_thresh}
 
     st.markdown("###")
-    if st.button("Apply Filters"):
-        if st.session_state['roi'] or (app_mode == "🤖 DL Water Segmentation" and params.get('source') == 'upload' and params.get('file')):
+    if st.button("RUN ANALYSIS 🚀"):
+        if app_mode == "🤖 DL Water Segmentation" and params.get('source') == 'upload' and params.get('file') is None:
+            st.error("Please upload a file.")
+        elif st.session_state['roi'] or (app_mode == "🤖 DL Water Segmentation" and params.get('source') == 'upload'):
             st.session_state['calculated'] = True
             st.session_state['mode'] = app_mode
             st.session_state['params'] = params
         else:
-            st.error("Select ROI or Upload File")
+            st.error("Select ROI first.")
 
-# --- 6. MAIN DASHBOARD UI ---
-st.markdown("""
-<div class="dashboard-header">
-    <div class="header-title">Geospatial Dashboard - Environmental Analysis</div>
-    <div class="header-subtitle">Interactive Geospatial Analysis & Remote Sensing Visualization</div>
+# --- 7. MAIN CONTENT ---
+st.markdown(f"""
+<div class="hud-header">
+    <div>
+        <div class="hud-title">GeoSarovar</div>
+        <div style="color:#5c6b7f; font-size:0.9rem; font-weight:600;">MODULE: {app_mode.upper()}</div>
+    </div>
+    <div style="text-align:right;">
+        <span style="background:#e6f0ff; color:#00204a; padding:5px 12px; border-radius:20px; font-weight:bold; font-size:0.8rem;">LIVE SYSTEM</span>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
+# Helper for Safe Map Loading
+def get_safe_map(height=500):
+    m = geemap.Map(height=height, basemap="HYBRID")
+    return m
+
 if not st.session_state['calculated']:
-    st.info("👈 Use the 'Data Filters' sidebar to configure and run your analysis.")
-    # Empty Placeholder structure
-    tab1, tab2, tab3 = st.tabs(["Raster Analysis", "Vector Data", "3D Terrain"])
-    with tab1:
-        m = geemap.Map(height=500, basemap="HYBRID")
-        if st.session_state['roi']:
-            m.centerObject(st.session_state['roi'], 12)
-            m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': 'yellow'}, 'ROI')
-        m.to_streamlit()
+    st.info("👈 Please select a module and a location in the sidebar to begin.")
+    m = get_safe_map(500)
+    if st.session_state['roi']:
+        m.centerObject(st.session_state['roi'], 12)
+        m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': 'yellow'}, 'ROI')
+    m.to_streamlit()
 
 else:
     roi = st.session_state['roi']
     mode = st.session_state['mode']
     p = st.session_state['params']
-    
-    # TABS STRUCTURE from Screenshot
-    tab1, tab2, tab3 = st.tabs(["Raster Analysis", "Vector Data", "3D Terrain"])
-    
-    # --- GLOBAL VARS FOR EXPORT ---
-    image_to_export = None
-    vis_export = {}
-    chart_data = None
-    vector_results = None
 
-    with tab1:
-        # GRID: Left Map (2.5) | Right Charts (1)
-        col_map, col_charts = st.columns([2.5, 1])
-        
-        # Initialize Map
-        m = geemap.Map(height=550, basemap="HYBRID")
-        if roi: m.centerObject(roi, 13)
+    # DL Layout is slightly different (needs wide map for results)
+    if mode == "🤖 DL Water Segmentation":
+        m = get_safe_map(700)
+        col_map, col_res = st.columns([3, 1])
 
-        # ---------------------------------------------------------------------
-        # LOGIC 1: DL SEGMENTATION
-        # ---------------------------------------------------------------------
-        if mode == "🤖 DL Water Segmentation":
-            with st.spinner("Running Deep Learning Inference..."):
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                model = load_dl_model_from_drive(device)
-                
-                image, profile, transform, crs = None, None, None, None
-                
-                # Input Handling
-                if p['source'] == 'upload':
-                    with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp:
-                        tmp.write(p['file'].getbuffer())
-                        tiff_path = tmp.name
-                    image, profile, transform, crs, _ = read_geotiff(tiff_path)
-                    m.add_raster(tiff_path, layer_name="Input Image", zoom_to_layer=True)
-                else:
-                    # PC Logic
-                    from rasterio.coords import BoundingBox
-                    import pystac_client, planetary_computer, stackstac, dask
-                    roi_json = roi.getInfo()
-                    geom = roi_json["geometry"] if "geometry" in roi_json else roi_json
-                    coords = geom["coordinates"][0] if geom['type'] == 'Polygon' else geom["coordinates"][0][0]
-                    bbox = [min(c[0] for c in coords), min(c[1] for c in coords), max(c[0] for c in coords), max(c[1] for c in coords)]
-                    
-                    catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1", modifier=planetary_computer.sign_inplace)
-                    col_id = "sentinel-2-l2a" if "Sentinel" in p['sat_type'] else "landsat-c2-l2"
-                    bands = ["B02","B03","B04"] if "Sentinel" in p['sat_type'] else ["blue","green","red"]
-                    
-                    search = catalog.search(collections=[col_id], bbox=bbox, datetime="2023-01-01/2023-12-31", query={"eo:cloud_cover": {"lt": 20}})
-                    items = list(search.items())
-                    if items:
-                        stack = stackstac.stack(items[:5], assets=bands, bounds_latlon=bbox, resolution=10).median(dim="time").compute()
-                        image = np.nan_to_num(stack.values).astype(np.uint16)
-                        # Create Transform
-                        x_coords, y_coords = stack.x.values, stack.y.values
-                        res_x = x_coords[1] - x_coords[0]
-                        res_y = y_coords[1] - y_coords[0]
-                        transform = Affine(res_x, 0, x_coords[0], 0, res_y, y_coords[0])
-                        crs = "EPSG:3857"
-                        
-                        # Temp save for map
-                        with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp:
-                            with rasterio.open(tmp.name, 'w', driver='GTiff', height=image.shape[1], width=image.shape[2], count=3, dtype='uint16', crs=crs, transform=transform) as dst:
-                                dst.write(image)
-                            m.add_raster(tmp.name, layer_name="Satellite", zoom_to_layer=True)
-                    else:
-                        st.error("No imagery found.")
-                        st.stop()
+        with st.spinner("Initializing Deep Learning Engine..."):
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model = load_dl_model_from_drive(device=device)
 
-                # Inference
-                mask, _ = predict_large_image(model, image, device)
-                gdf = mask_to_vector(mask, transform, crs)
-                vector_results = gdf
-                
+            image = None
+            profile = None
+            transform = None
+            crs = None
+            bounds = None
+
+            # A. LOAD DATA
+            if p['source'] == 'upload':
+                with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp:
+                    tmp.write(p['file'].getbuffer())
+                    tiff_path = tmp.name
+                image, profile, transform, crs, bounds = read_geotiff(tiff_path)
+                m.add_raster(tiff_path, layer_name="Uploaded Image", zoom_to_layer=True)
+
+            elif p['source'] == 'pc':
+                st.info("Querying Microsoft Planetary Computer...")
+                # Convert GEE Geometry to GeoJSON dict
+                roi_json = roi.getInfo()
+                result = build_planetary_computer_image_for_aoi(roi_json, p['sat_type'])
+                if result[0] is None:
+                    st.error("No cloud-free imagery found.")
+                    st.stop()
+                image, profile, transform, crs, bounds, count = result
+                st.toast(f"Composited {count} images from Planetary Computer")
+
+                # Save temp to visualize on map
+                with tempfile.NamedTemporaryFile(suffix="_pc.tif", delete=False) as tmp_pc:
+                    with rasterio.open(tmp_pc.name, 'w', **profile) as dst:
+                        dst.write(image)
+                    m.add_raster(tmp_pc.name, layer_name="Satellite Composite", zoom_to_layer=True)
+
+            # B. INFERENCE
+            st.info("Running U-Net Inference...")
+            mask, prob = predict_large_image(model, image, device=device)
+
+            # C. VECTORIZE
+            st.info("Vectorizing Results...")
+            gdf = mask_to_vector(mask, transform, crs)
+
+            # D. VISUALIZE
+            style = {"color": "#00BFFF", "weight": 2, "fillOpacity": 0.5, "fillColor": "#00BFFF"}
+            if not gdf.empty:
+                m.add_gdf(gdf, layer_name="Detected Water", style=style, info_mode="on_hover")
+            else:
+                st.warning("No water bodies detected.")
+
+            with col_map:
+                m.to_streamlit()
+
+            with col_res:
+                st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+                st.markdown('<div class="card-label">📊 DL RESULTS</div>', unsafe_allow_html=True)
                 if not gdf.empty:
-                    m.add_gdf(gdf, layer_name="Water Mask", style={"color": "#00BFFF", "fillColor": "#00BFFF", "fillOpacity": 0.5})
+                    st.metric("Water Bodies", len(gdf))
+                    st.metric("Total Area", f"{gdf['area_km2'].sum():.2f} km²")
+                    st.dataframe(gdf[['id', 'area_km2']], hide_index=True, use_container_width=True)
 
-                # --- UI: Map ---
-                with col_map:
-                    st.markdown(f"**{mode}**")
-                    m.to_streamlit()
-                    
-                    # Bottom Stats Cards
-                    st.markdown("### Statistics")
-                    c1, c2, c3 = st.columns(3)
-                    cnt = len(gdf) if not gdf.empty else 0
-                    area = gdf['area_km2'].sum() if not gdf.empty else 0
-                    c1.markdown(f'<div class="stat-box"><div class="stat-label">Water Bodies</div><div class="stat-value">{cnt}</div></div>', unsafe_allow_html=True)
-                    c2.markdown(f'<div class="stat-box"><div class="stat-label">Total Area (km²)</div><div class="stat-value">{area:.2f}</div></div>', unsafe_allow_html=True)
-                    c3.markdown(f'<div class="stat-box"><div class="stat-label">Model</div><div class="stat-value">ResNet34</div></div>', unsafe_allow_html=True)
+                    # Download Shapefile
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        shp_path = os.path.join(tmpdir, "water_mask.shp")
+                        gdf.to_file(shp_path)
+                        zip_path = os.path.join(tmpdir, "water_mask.zip")
+                        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                            for ext in ["shp", "shx", "dbf", "prj"]:
+                                fpath = os.path.join(tmpdir, f"water_mask.{ext}")
+                                if os.path.exists(fpath): zf.write(fpath, arcname=os.path.basename(fpath))
+                        with open(zip_path, "rb") as f:
+                            st.download_button("📥 Download Shapefile", f.read(), "water_mask.zip", "application/zip", use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
-                # --- UI: Charts ---
-                with col_charts:
-                    st.markdown('<div class="panel-box">', unsafe_allow_html=True)
-                    st.markdown('<div class="panel-title">Area Distribution</div>', unsafe_allow_html=True)
-                    if not gdf.empty:
-                        top = gdf.head(5)
-                        fig, ax = plt.subplots(figsize=(3,3))
-                        ax.pie(top['area_km2'], labels=[f"ID {i}" for i in top['id']], autopct='%1.0f%%')
-                        st.pyplot(fig)
-                        st.dataframe(gdf[['id','area_km2']], height=150)
-                    else: st.write("No Data")
-                    st.markdown('</div>', unsafe_allow_html=True)
+    # Standard GEE Modules Layout
+    else:
+        col_map, col_res = st.columns([3, 1])
+        m = get_safe_map(700)
+        m.centerObject(roi, 13)
+        image_to_export = None
+        vis_export = {}
 
-        # ---------------------------------------------------------------------
-        # LOGIC 2: RWH SITE SUITABILITY
-        # ---------------------------------------------------------------------
-        elif mode == "📍 RWH Site Suitability":
-            with st.spinner("Calculating Suitability..."):
+        # ==========================================
+        # LOGIC A: RWH SITE SUITABILITY (UPDATED)
+        # ==========================================
+        if mode == "📍 RWH Site Suitability":
+            with st.spinner("AI Planning in Progress (Random Forest)..."):
+                
+                # 1. DATA ACQUISITION
+                # DEM (SRTM)
                 dem = ee.Image("USGS/SRTMGL1_003").clip(roi)
-                rain = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY").filterDate(p['start'], p['end']).filterBounds(roi).sum().clip(roi).rename('rainfall')
+                
+                # Rainfall (CHIRPS Daily)
+                rainfall = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY") \
+                    .filterDate(p['start'], p['end']) \
+                    .filterBounds(roi) \
+                    .sum() \
+                    .clip(roi) \
+                    .rename('rainfall')
+
+                # LULC (ESA WorldCover)
                 lulc = ee.ImageCollection("ESA/WorldCover/v100").first().clip(roi).rename('lulc')
-                hydro = ee.Image("WWF/HydroSHEDS/03VFDEM").clip(roi)
-                flow = hydro.select('b1').rename('flow_accumulation')
+                
+                # Soil (OpenLandMap - Sand content)
+                soil = ee.Image("OpenLandMap/SOL/SOL_SAND-WFRACTION_USDA-3A1a1a_M/v02") \
+                    .select('b0').clip(roi).rename('soil_sand')
+
+                # 2. FEATURE ENGINEERING
+                # Topographic Factors
                 slope = ee.Terrain.slope(dem).rename('slope')
                 
-                # Stack
-                features = ee.Image.cat([dem, slope, rain, flow, lulc]).rename(['elevation', 'slope', 'rainfall', 'flow_accumulation', 'lulc'])
-                
-                # Synthetic Rules for RF
-                high_suit = features.select('flow_accumulation').gt(500).And(features.select('slope').lt(10))
-                low_suit = features.select('slope').gt(20)
-                train_pts = features.updateMask(high_suit).sample(roi, 100, 50).map(lambda f: f.set('class', 1))\
-                    .merge(features.updateMask(low_suit).sample(roi, 100, 50).map(lambda f: f.set('class', 0)))
-                
-                classifier = ee.Classifier.smileRandomForest(50).train(train_pts, 'class', ['elevation', 'slope', 'rainfall', 'flow_accumulation', 'lulc'])
-                classified = features.classify(classifier)
-                
-                # Constraints
-                mask = classified.eq(1)
-                if p['rwh_type'] == "Check Dam": mask = mask.And(slope.lt(15))
-                elif p['rwh_type'] == "Farm Pond": mask = mask.And(slope.lt(5))
-                result = classified.updateMask(mask)
-                
-                image_to_export = result
-                vis_export = {'min': 0, 'max': 1, 'palette': ['white', 'green']}
-                
-                m.addLayer(dem, {'min': 0, 'max': 1000}, 'Elevation', False)
-                m.addLayer(rain, {'min': 0, 'max': 1500, 'palette': ['blue','cyan']}, 'Rainfall', False)
-                m.addLayer(result, {'palette':['green']}, 'Suitability')
-                
-                # Stats
-                rain_val = rain.reduceRegion(ee.Reducer.mean(), roi, 1000).get('rainfall').getInfo() or 0
-                elev_val = dem.reduceRegion(ee.Reducer.mean(), roi, 1000).get('elevation').getInfo() or 0
+                # Hydrology (Flow Accumulation from HydroSHEDS)
+                hydro = ee.Image("WWF/HydroSHEDS/03VFDEM").clip(roi)
+                flow_acc = hydro.select('b1').rename('flow_accumulation')
 
-                with col_map:
-                    st.markdown(f"**{mode} - {p['rwh_type']}**")
-                    m.to_streamlit()
-                    st.markdown("### Statistics")
-                    c1, c2, c3 = st.columns(3)
-                    c1.markdown(f'<div class="stat-box"><div class="stat-label">Avg Rainfall</div><div class="stat-value">{rain_val:.1f} mm</div></div>', unsafe_allow_html=True)
-                    c2.markdown(f'<div class="stat-box"><div class="stat-label">Avg Elevation</div><div class="stat-value">{elev_val:.0f} m</div></div>', unsafe_allow_html=True)
-                    c3.markdown(f'<div class="stat-box"><div class="stat-label">Model</div><div class="stat-value">Random Forest</div></div>', unsafe_allow_html=True)
+                # Combine all features
+                features = ee.Image.cat([dem, slope, rainfall, flow_acc, soil, lulc])
+                feature_names = ['elevation', 'slope', 'rainfall', 'flow_accumulation', 'soil_sand', 'lulc']
+                features = features.rename(feature_names)
 
-                with col_charts:
-                    st.markdown('<div class="panel-box">', unsafe_allow_html=True)
-                    st.markdown('<div class="panel-title">Factor Importance</div>', unsafe_allow_html=True)
-                    # Mock importance for visualization
-                    factors = ['Slope', 'Rain', 'Flow', 'LULC']
-                    vals = [40, 25, 20, 15]
-                    fig, ax = plt.subplots(figsize=(3,3))
-                    ax.pie(vals, labels=factors, autopct='%1.0f%%', startangle=90)
-                    st.pyplot(fig)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                # 3. GIS CONSTRAINT FILTERING
+                def apply_constraints(image, structure):
+                    # Exclude very steep slopes (> 30 degrees)
+                    slope_mask = image.select('slope').lt(30)
+                    
+                    # Exclude Urban Areas (LULC class 50 in ESA WorldCover)
+                    urban_mask = image.select('lulc').neq(50)
+                    
+                    # Structure specific constraints
+                    if structure == "Check Dam":
+                        # Needs drainage lines (High Flow Acc) but moderate slope
+                        struct_mask = image.select('slope').lt(15)
+                    elif structure == "Farm Pond":
+                        # Needs flat land
+                        struct_mask = image.select('slope').lt(5)
+                    else:
+                        struct_mask = ee.Image(1)
 
-        # ---------------------------------------------------------------------
-        # LOGIC 3: ENCROACHMENT (S1)
-        # ---------------------------------------------------------------------
+                    combined_mask = slope_mask.And(urban_mask).And(struct_mask)
+                    return image.updateMask(combined_mask)
+
+                processed_features = apply_constraints(features, p['rwh_type'])
+
+                # 4. TRAINING DATA CREATION (SIMULATED)
+                # Generates training points because we don't have real ground truth uploaded.
+                def get_synthetic_training_data(roi, image):
+                    # Define rules for "Good" locations (Class 1) - High Flow + Low Slope
+                    high_suitability_rule = image.select('flow_accumulation').gt(500) \
+                        .And(image.select('slope').lt(10))
+                    
+                    # Define rules for "Bad" locations (Class 0) - Steep Slope
+                    low_suitability_rule = image.select('slope').gt(20)
+                    
+                    # Sample points
+                    points_good = image.updateMask(high_suitability_rule).sample(
+                        region=roi, scale=100, numPixels=50, geometries=True
+                    ).map(lambda f: f.set('class', 1))
+                    
+                    points_bad = image.updateMask(low_suitability_rule).sample(
+                        region=roi, scale=100, numPixels=50, geometries=True
+                    ).map(lambda f: f.set('class', 0))
+                    
+                    return points_good.merge(points_bad)
+
+                training_data = get_synthetic_training_data(roi, processed_features)
+
+                # 5. AI / ML MODELING (Random Forest)
+                classifier = ee.Classifier.smileRandomForest(numberOfTrees=50) \
+                    .train(
+                        features=training_data,
+                        classProperty='class',
+                        inputProperties=feature_names
+                    )
+
+                # Classify the image
+                classified_suitability = processed_features.classify(classifier)
+                
+                # 6. VISUALIZATION
+                vis_params_slope = {'min': 0, 'max': 30, 'palette': ['green', 'yellow', 'red']}
+                vis_params_rain = {'min': 0, 'max': 2000, 'palette': ['blue', 'cyan', 'green']}
+                vis_params_suitability = {'min': 0, 'max': 1, 'palette': ['red', 'green']} # Red=Bad, Green=Good
+
+                m.addLayer(dem, {'min': 0, 'max': 1000, 'palette': ['black', 'white']}, 'DEM (Elevation)', False)
+                m.addLayer(slope, vis_params_slope, 'Slope', False)
+                m.addLayer(rainfall, vis_params_rain, 'Rainfall', False)
+                m.addLayer(classified_suitability, vis_params_suitability, 'Predicted Suitability (RF)', True)
+                m.addLayer(training_data, {'color': 'blue'}, 'Training Samples (Synthetic)', False)
+
+                image_to_export = classified_suitability
+                vis_export = vis_params_suitability
+
+                # 7. ANALYTICS (Right Column)
+                with col_res:
+                    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+                    st.markdown('<div class="card-label">🧠 DECISION SUPPORT</div>', unsafe_allow_html=True)
+                    
+                    st.success(f"✅ Target: {p['rwh_type']}")
+                    st.info("✅ Algorithm: Random Forest (50 Trees)")
+                    
+                    # Statistics
+                    stats = rainfall.reduceRegion(
+                        reducer=ee.Reducer.mean(),
+                        geometry=roi,
+                        scale=1000,
+                        maxPixels=1e9
+                    ).getInfo()
+                    
+                    if stats:
+                         st.metric("Avg Rainfall", f"{stats.get('rainfall', 0):.2f} mm")
+                    else:
+                        st.warning("Stats unavailable for region")
+                        
+                    st.markdown("---")
+                    st.caption("Suitability based on synthetic training data derived from hydrological rules.")
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+        # ==========================================
+        # LOGIC B: ENCROACHMENT DETECTION (SENTINEL-1)
+        # ==========================================
         elif mode == "⚠️ Encroachment (S1 SAR)":
-            with st.spinner("Processing Sentinel-1 SAR..."):
-                def get_s1(s, e):
-                    c = ee.ImageCollection('COPERNICUS/S1_GRD').filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))\
-                        .filter(ee.Filter.eq('instrumentMode', 'IW')).filterDate(s, e).filterBounds(roi)
-                    if p['orbit'] != "BOTH": c = c.filter(ee.Filter.eq('orbitProperties_pass', p['orbit']))
-                    return c
-                
-                col1 = get_s1(p['d1_start'], p['d1_end'])
-                col2 = get_s1(p['d2_start'], p['d2_end'])
-                
-                if col1.size().getInfo() > 0 and col2.size().getInfo() > 0:
-                    w1 = col1.map(lambda i: i.select('VV').focal_median(50,'circle','meters')).min().clip(roi).lt(-16)
-                    w2 = col2.map(lambda i: i.select('VV').focal_median(50,'circle','meters')).min().clip(roi).lt(-16)
-                    
-                    encroach = w1.And(w2.Not()).selfMask()
-                    new_w = w1.Not().And(w2).selfMask()
-                    stable = w1.And(w2).selfMask()
-                    
-                    m.addLayer(stable, {'palette': 'cyan'}, 'Stable Water')
-                    m.addLayer(encroach, {'palette': 'red'}, 'Encroachment (Loss)')
-                    m.addLayer(new_w, {'palette': 'blue'}, 'New Water (Gain)')
-                    
-                    loss_area = encroach.multiply(ee.Image.pixelArea()).reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9).get('VV').getInfo() or 0
-                    gain_area = new_w.multiply(ee.Image.pixelArea()).reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9).get('VV').getInfo() or 0
-                    loss_ha = loss_area / 10000
-                    gain_ha = gain_area / 10000
-                    
-                    with col_map:
-                        st.markdown(f"**{mode}**")
-                        m.to_streamlit()
-                        st.markdown("### Statistics")
-                        c1, c2, c3 = st.columns(3)
-                        c1.markdown(f'<div class="stat-box"><div class="stat-label">Loss (Ha)</div><div class="stat-value">{loss_ha:.2f}</div></div>', unsafe_allow_html=True)
-                        c2.markdown(f'<div class="stat-box"><div class="stat-label">Gain (Ha)</div><div class="stat-value">{gain_ha:.2f}</div></div>', unsafe_allow_html=True)
-                        c3.markdown(f'<div class="stat-box"><div class="stat-label">Orbit</div><div class="stat-value">{p["orbit"]}</div></div>', unsafe_allow_html=True)
-                    
-                    with col_charts:
-                        st.markdown('<div class="panel-box">', unsafe_allow_html=True)
-                        st.markdown('<div class="panel-title">Change Metrics</div>', unsafe_allow_html=True)
-                        st.bar_chart({"Loss": loss_ha, "Gain": gain_ha})
-                        st.markdown('</div>', unsafe_allow_html=True)
-                else:
-                    st.error("Insufficient SAR data.")
+            with st.spinner("Processing Sentinel-1 SAR Data..."):
 
-        # ---------------------------------------------------------------------
-        # LOGIC 4: FLOOD MAPPING
-        # ---------------------------------------------------------------------
+                def get_sar_collection(start_d, end_d, roi_geom, orbit_pass):
+                    s1 = ee.ImageCollection('COPERNICUS/S1_GRD')\
+                        .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))\
+                        .filter(ee.Filter.eq('instrumentMode', 'IW'))\
+                        .filterDate(start_d, end_d)\
+                        .filterBounds(roi_geom)
+                    if orbit_pass != "BOTH":
+                        s1 = s1.filter(ee.Filter.eq('orbitProperties_pass', orbit_pass))
+                    return s1
+
+                def process_water_mask(col, roi_geom):
+                    if col.size().getInfo() == 0: return None, "N/A"
+                    date_found = ee.Date(col.first().get('system:time_start')).format('YYYY-MM-dd').getInfo()
+                    def speckle_filter(img): return img.select('VV').focal_median(50, 'circle', 'meters').rename('VV_smoothed')
+                    mosaic = col.map(speckle_filter).min().clip(roi_geom)
+                    water_mask = mosaic.lt(-16).selfMask()
+                    return water_mask, date_found
+
+                try:
+                    col_initial = get_sar_collection(p['d1_start'], p['d1_end'], roi, p['orbit'])
+                    col_final = get_sar_collection(p['d2_start'], p['d2_end'], roi, p['orbit'])
+
+                    water_initial, date_init = process_water_mask(col_initial, roi)
+                    water_final, date_fin = process_water_mask(col_final, roi)
+
+                    if water_initial and water_final:
+                        encroachment = water_initial.unmask(0).And(water_final.unmask(0).Not()).selfMask()
+                        new_water = water_initial.unmask(0).Not().And(water_final.unmask(0)).selfMask()
+                        stable_water = water_initial.unmask(0).And(water_final.unmask(0)).selfMask()
+
+                        change_map = ee.Image(0).where(stable_water, 1).where(encroachment, 2).where(new_water, 3).clip(roi).selfMask()
+                        image_to_export = change_map
+                        vis_export = {'min': 1, 'max': 3, 'palette': ['cyan', 'red', 'blue']}
+
+                        left_layer = geemap.ee_tile_layer(water_initial, {'palette': 'blue'}, "Initial Water")
+                        right_layer = geemap.ee_tile_layer(water_final, {'palette': 'cyan'}, "Final Water")
+                        m.split_map(left_layer, right_layer)
+
+                        m.addLayer(encroachment, {'palette': 'red'}, '🔴 Encroachment (Loss)')
+                        m.addLayer(new_water, {'palette': 'blue'}, '🔵 New Water (Gain)')
+
+                        pixel_area = encroachment.multiply(ee.Image.pixelArea())
+                        val_loss = pixel_area.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9).values().get(0).getInfo()
+                        loss_ha = round((val_loss or 0) / 10000, 2)
+
+                        pixel_area_gain = new_water.multiply(ee.Image.pixelArea())
+                        val_gain = pixel_area_gain.reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9).values().get(0).getInfo()
+                        gain_ha = round((val_gain or 0) / 10000, 2)
+
+                        with col_res:
+                            st.markdown('<div class="alert-card">', unsafe_allow_html=True)
+                            st.markdown(f"### ⚠️ Change Report")
+                            st.metric("🔴 Water Loss", f"{loss_ha} Ha", help="Potential Encroachment")
+                            st.metric("🔵 Water Gain", f"{gain_ha} Ha", help="Flooding/New Storage")
+
+                            st.markdown(f"""
+                            <div class="date-badge">📅 Base: {date_init}</div>
+                            <div class="date-badge">📅 Curr: {date_fin}</div>
+                            """, unsafe_allow_html=True)
+                            st.markdown("</div>", unsafe_allow_html=True)
+
+                            st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+                            st.markdown('<div class="card-label">⏱️ TIMELAPSE</div>', unsafe_allow_html=True)
+                            if st.button("Create Timelapse"):
+                                with st.spinner("Generating GIF..."):
+                                    try:
+                                        s1_tl = get_sar_collection(p['d1_start'], p['d2_end'], roi, p['orbit']).select('VV')
+                                        video_args = {'dimensions': 600, 'region': roi, 'framesPerSecond': 5, 'min': -25, 'max': -5, 'palette': ['black', 'blue', 'white']}
+                                        monthly = geemap.create_timeseries(s1_tl, p['d1_start'], p['d2_end'], frequency='year', reducer='median')
+                                        gif_url = monthly.getVideoThumbURL(video_args)
+                                        st.image(gif_url, caption="Radar Intensity (Dark=Water)", use_container_width=True)
+                                    except Exception as e: st.error(f"Timelapse Error: {e}")
+                            st.markdown("</div>", unsafe_allow_html=True)
+                    else:
+                        st.warning("Insufficient SAR data for selected dates and orbit.")
+                        image_to_export = ee.Image(0)
+                except Exception as e:
+                    st.error(f"Computation Error: {e}")
+
+        # ==========================================
+        # LOGIC C: FLOOD EXTENT MAPPING
+        # ==========================================
         elif mode == "Flood Extent Mapping":
-            with st.spinner("Mapping Flood..."):
-                def get_s1(s, e):
-                    c = ee.ImageCollection('COPERNICUS/S1_GRD').filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH'))\
-                        .filter(ee.Filter.eq('instrumentMode', 'IW')).filterDate(s, e).filterBounds(roi)
-                    if p['orbit'] != "BOTH": c = c.filter(ee.Filter.eq('orbitProperties_pass', p['orbit']))
-                    return c
-                
-                c_pre = get_s1(p['pre_start'], p['pre_end'])
-                c_post = get_s1(p['post_start'], p['post_end'])
-                
-                if c_pre.size().getInfo() > 0 and c_post.size().getInfo() > 0:
-                    pre = c_pre.median().clip(roi).focal_mean(50,'circle','meters')
-                    post = c_post.mosaic().clip(roi).focal_mean(50,'circle','meters')
-                    
-                    diff = post.divide(pre)
-                    flood = diff.gt(p['threshold'])
-                    
-                    # Perm water & Slope masking
-                    gsw = ee.Image("JRC/GSW1_4/GlobalSurfaceWater").select('occurrence')
-                    dem = ee.Image('WWF/HydroSHEDS/03VFDEM')
-                    slope = ee.Algorithms.Terrain(dem).select('slope')
-                    
-                    final_flood = flood.updateMask(gsw.gt(30).Not()).updateMask(slope.lt(5)).selfMask()
-                    
-                    m.addLayer(pre, {'min':-25, 'max':0}, 'Pre-Event', False)
-                    m.addLayer(post, {'min':-25, 'max':0}, 'Post-Event', True)
-                    m.addLayer(final_flood, {'palette':['blue']}, 'Flood Extent')
-                    
-                    area_sqm = final_flood.multiply(ee.Image.pixelArea()).reduceRegion(ee.Reducer.sum(), roi, 10, maxPixels=1e9).get('VH').getInfo() or 0
-                    area_ha = area_sqm / 10000
-                    
-                    with col_map:
-                        st.markdown(f"**{mode}**")
-                        m.to_streamlit()
-                        st.markdown("### Statistics")
-                        c1, c2, c3 = st.columns(3)
-                        c1.markdown(f'<div class="stat-box"><div class="stat-label">Flood Area</div><div class="stat-value">{area_ha:.2f} Ha</div></div>', unsafe_allow_html=True)
-                        c2.markdown(f'<div class="stat-box"><div class="stat-label">Threshold</div><div class="stat-value">{p["threshold"]}</div></div>', unsafe_allow_html=True)
-                        c3.markdown(f'<div class="stat-box"><div class="stat-label">Pol</div><div class="stat-value">VH</div></div>', unsafe_allow_html=True)
-                    
-                    with col_charts:
-                         st.markdown('<div class="panel-box">', unsafe_allow_html=True)
-                         st.info("Visual analysis complete. See map for extent.")
-                         st.markdown('</div>', unsafe_allow_html=True)
+            with st.spinner("Processing Flood Extent..."):
+                try:
+                    collection = ee.ImageCollection('COPERNICUS/S1_GRD') \
+                        .filter(ee.Filter.eq('instrumentMode', 'IW')) \
+                        .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH')) \
+                        .filter(ee.Filter.eq('resolution_meters', 10)) \
+                        .filterBounds(roi) \
+                        .select('VH')
 
-        # ---------------------------------------------------------------------
-        # LOGIC 5: WATER QUALITY
-        # ---------------------------------------------------------------------
+                    if p['orbit'] != "BOTH":
+                        collection = collection.filter(ee.Filter.eq('orbitProperties_pass', p['orbit']))
+
+                    before_col = collection.filterDate(p['pre_start'], p['pre_end'])
+                    after_col = collection.filterDate(p['post_start'], p['post_end'])
+
+                    if before_col.size().getInfo() > 0 and after_col.size().getInfo() > 0:
+                        date_pre = ee.Date(before_col.first().get('system:time_start')).format('YYYY-MM-dd').getInfo()
+                        date_post = ee.Date(after_col.first().get('system:time_start')).format('YYYY-MM-dd').getInfo()
+
+                        before = before_col.median().clip(roi)
+                        after = after_col.mosaic().clip(roi)
+
+                        smoothing = 50
+                        before_f = before.focal_mean(smoothing, 'circle', 'meters')
+                        after_f = after.focal_mean(smoothing, 'circle', 'meters')
+
+                        difference = after_f.divide(before_f)
+                        difference_binary = difference.gt(p['threshold'])
+
+                        gsw = ee.Image("JRC/GSW1_4/GlobalSurfaceWater")
+                        occurrence = gsw.select('occurrence')
+                        permanent_water_mask = occurrence.gt(30)
+
+                        flooded = difference_binary.updateMask(permanent_water_mask.Not())
+
+                        dem = ee.Image('WWF/HydroSHEDS/03VFDEM')
+                        slope = ee.Algorithms.Terrain(dem).select('slope')
+                        flooded = flooded.updateMask(slope.lt(5))
+
+                        flooded = flooded.updateMask(flooded.connectedPixelCount().gte(8))
+                        flooded = flooded.selfMask()
+
+                        image_to_export = flooded
+                        vis_export = {'min': 0, 'max': 1, 'palette': ['#0000FF']}
+
+                        m.addLayer(before_f, {'min': -25, 'max': 0}, 'Before Flood (Dry)', False)
+                        m.addLayer(after_f, {'min': -25, 'max': 0}, 'After Flood (Wet)', True)
+                        m.addLayer(flooded, {'palette': ['#0000FF']}, '🌊 Estimated Flood Extent')
+
+                        flood_stats = flooded.multiply(ee.Image.pixelArea()).reduceRegion(reducer=ee.Reducer.sum(), geometry=roi, scale=10, bestEffort=True)
+                        flood_area_ha = round(flood_stats.values().get(0).getInfo() / 10000, 2)
+
+                        with col_res:
+                            st.markdown('<div class="alert-card">', unsafe_allow_html=True)
+                            st.markdown("### 🌊 Flood Report")
+                            st.metric("Estimated Extent", f"{flood_area_ha} Ha")
+                            st.markdown(f"""
+                            <div class="date-badge">📅 Pre: {date_pre}</div>
+                            <div class="date-badge">📅 Post: {date_post}</div>
+                            """, unsafe_allow_html=True)
+                            st.caption(f"Orbit: {p['orbit']} | Pol: VH")
+                            st.markdown("</div>", unsafe_allow_html=True)
+
+                    else:
+                        st.error(f"No images found for Orbit: {p['orbit']} in these dates.")
+
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        # ==========================================
+        # LOGIC D: WATER QUALITY (Sentinel-2)
+        # ==========================================
         elif mode == "🧪 Water Quality":
-            with st.spinner("Analyzing Indices..."):
-                s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED").filterDate(p['start'], p['end']).filterBounds(roi)
-                
-                # Formulae
-                def add_indices(img):
-                    ndti = img.normalizedDifference(['B4', 'B3']).rename('NDTI')
-                    tss = img.expression('2950 * (b4**1.357)', {'b4': img.select('B4')}).rename('TSS')
-                    return img.addBands([ndti, tss])
+            with st.spinner(f"Computing {p['param']} (Scientific Mode)..."):
+                try:
+                    # 1. PRE-PROCESSING FUNCTION (Improved Masking)
+                    def mask_clouds_and_water(img):
+                        # Cloud Masking (using S2_CLOUD_PROBABILITY)
+                        cloud_prob = ee.Image(img.get('cloud_mask')).select('probability')
+                        is_cloud = cloud_prob.gt(p['cloud'])
 
-                s2_proc = s2.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', p['cloud'])).map(add_indices)
-                
-                if s2_proc.size().getInfo() > 0:
-                    band = 'NDTI' if "Turbidity" in p['param'] else 'TSS'
-                    result = s2_proc.select(band).median().clip(roi)
-                    vis = {'min':-0.1, 'max':0.1, 'palette':['blue','yellow','red']} if band == 'NDTI' else {'min':0, 'max':50, 'palette':['blue','yellow','brown']}
-                    m.addLayer(result, vis, band)
-                    
-                    # Time Series
-                    def get_mean(img):
-                        val = img.reduceRegion(ee.Reducer.mean(), roi, 50).get(band)
-                        return ee.Feature(None, {'date': img.date().format('YYYY-MM-dd'), 'value': val})
-                    
-                    ts_data = s2_proc.map(get_mean).filter(ee.Filter.notNull(['value'])).reduceColumns(ee.Reducer.toList(2), ['date','value']).get('list').getInfo()
-                    df = pd.DataFrame(ts_data, columns=['Date', 'Value']) if ts_data else pd.DataFrame()
-                    
-                    with col_map:
-                        st.markdown(f"**{mode}**")
-                        m.to_streamlit()
-                        st.markdown("### Statistics")
-                        c1, c2, c3 = st.columns(3)
-                        mean_val = df['Value'].mean() if not df.empty else 0
-                        max_val = df['Value'].max() if not df.empty else 0
-                        c1.markdown(f'<div class="stat-box"><div class="stat-label">Mean {band}</div><div class="stat-value">{mean_val:.3f}</div></div>', unsafe_allow_html=True)
-                        c2.markdown(f'<div class="stat-box"><div class="stat-label">Max {band}</div><div class="stat-value">{max_val:.3f}</div></div>', unsafe_allow_html=True)
-                        c3.markdown(f'<div class="stat-box"><div class="stat-label">Samples</div><div class="stat-value">{len(df)}</div></div>', unsafe_allow_html=True)
+                        # Scale Bands to Reflectance (0 to 1)
+                        bands = img.select(['B.*']).multiply(0.0001)
 
-                    with col_charts:
-                        st.markdown('<div class="panel-box">', unsafe_allow_html=True)
-                        st.markdown(f'<div class="panel-title">{band} Time Series</div>', unsafe_allow_html=True)
-                        if not df.empty:
-                            df['Date'] = pd.to_datetime(df['Date'])
-                            st.line_chart(df.set_index('Date'))
-                        else: st.write("No valid data.")
-                        st.markdown('</div>', unsafe_allow_html=True)
+                        # Water Masking (NDWI > 0.0)
+                        ndwi = bands.normalizedDifference(['B3', 'B8']).rename('ndwi')
+                        is_water = ndwi.gt(0.0)
+
+                        return bands.updateMask(is_cloud.Not()).updateMask(is_water).copyProperties(img, ['system:time_start'])
+
+                    # 2. LOAD COLLECTIONS
+                    s2_sr = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED").filterDate(p['start'], p['end']).filterBounds(roi)
+                    s2_cloud = ee.ImageCollection("COPERNICUS/S2_CLOUD_PROBABILITY").filterDate(p['start'], p['end']).filterBounds(roi)
+
+                    # Join collections
+                    s2_joined = ee.Join.saveFirst('cloud_mask').apply(
+                        primary=s2_sr, secondary=s2_cloud,
+                        condition=ee.Filter.equals(leftField='system:index', rightField='system:index')
+                    )
+
+                    processed_col = ee.ImageCollection(s2_joined).map(mask_clouds_and_water)
+
+                    # 3. COMPUTE SCIENTIFIC INDICES
+                    viz_params = {}
+                    result_layer = None
+                    layer_name = ""
+
+                    if "Turbidity" in p['param']:
+                        def calc_ndti(img):
+                            ndti = img.normalizedDifference(['B4', 'B3']).rename('value')
+                            return ndti.copyProperties(img, ['system:time_start'])
+
+                        final_col = processed_col.map(calc_ndti)
+                        result_layer = final_col.mean().clip(roi)
+                        viz_params = {'min': -0.15, 'max': 0.15, 'palette': ['0000ff', '00ffff', 'ffff00', 'ff0000']}
+                        layer_name = "Turbidity Index (NDTI)"
+
+                    elif "TSS" in p['param']:
+                        def calc_tss(img):
+                            tss = img.expression('2950 * (b4 ** 1.357)', {'b4': img.select('B4')}).rename('value')
+                            return tss.copyProperties(img, ['system:time_start'])
+
+                        final_col = processed_col.map(calc_tss)
+                        result_layer = final_col.median().clip(roi)
+                        viz_params = {'min': 0, 'max': 50, 'palette': ['0000ff', '00ffff', 'ffff00', 'ff0000', '5c0000']}
+                        layer_name = "TSS (Est. mg/L)"
+
+                    elif "Cyanobacteria" in p['param']:
+                        def calc_cyano(img):
+                            cyano = img.expression('b5 / b4', {
+                                'b5': img.select('B5'), 'b4': img.select('B4')
+                            }).rename('value')
+                            return cyano.copyProperties(img, ['system:time_start'])
+
+                        final_col = processed_col.map(calc_cyano)
+                        result_layer = final_col.max().clip(roi)
+                        viz_params = {'min': 0.8, 'max': 1.5, 'palette': ['0000ff', '00ff00', 'ff0000']}
+                        layer_name = "Cyano Risk (Ratio > 1)"
+
+                    elif "Chlorophyll" in p['param']:
+                        def calc_ndci(img):
+                            ndci = img.normalizedDifference(['B5', 'B4']).rename('value')
+                            return ndci.copyProperties(img, ['system:time_start'])
+
+                        final_col = processed_col.map(calc_ndci)
+                        result_layer = final_col.mean().clip(roi)
+                        viz_params = {'min': -0.1, 'max': 0.2, 'palette': ['0000ff', '00ffff', '00ff00', 'ff0000']}
+                        layer_name = "Chlorophyll-a (NDCI)"
+
+                    elif "CDOM" in p['param']:
+                        def calc_cdom(img):
+                            cdom = img.expression('b3 / b2', {
+                                'b3': img.select('B3'), 'b2': img.select('B2')
+                            }).rename('value')
+                            return cdom.copyProperties(img, ['system:time_start'])
+
+                        final_col = processed_col.map(calc_cdom)
+                        result_layer = final_col.median().clip(roi)
+                        viz_params = {'min': 0.5, 'max': 2.0, 'palette': ['0000ff', 'yellow', 'brown']}
+                        layer_name = "CDOM Proxy (Green/Blue)"
+
+                    # 4. VISUALIZATION
+                    if result_layer:
+                        image_to_export = result_layer
+                        vis_export = viz_params
+                        m.addLayer(result_layer, viz_params, layer_name)
+                        m.add_colorbar(viz_params, label=layer_name)
+
+                        # 5. CHARTING
+                        with col_res:
+                            st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+                            st.markdown(f'<div class="card-label">📈 TREND ANALYSIS</div>', unsafe_allow_html=True)
+                            try:
+                                def get_stats(img):
+                                    date = ee.Date(img.get('system:time_start')).format('YYYY-MM-dd')
+                                    val = img.reduceRegion(
+                                        reducer=ee.Reducer.median(),
+                                        geometry=roi,
+                                        scale=20,
+                                        maxPixels=1e9
+                                    ).values().get(0)
+                                    return ee.Feature(None, {'date': date, 'value': val})
+
+                                fc = final_col.map(get_stats).filter(ee.Filter.notNull(['value']))
+                                data_list = fc.reduceColumns(ee.Reducer.toList(2), ['date', 'value']).get('list').getInfo()
+
+                                if data_list:
+                                    df_chart = pd.DataFrame(data_list, columns=['Date', 'Value'])
+                                    df_chart['Date'] = pd.to_datetime(df_chart['Date'])
+                                    df_chart = df_chart.sort_values('Date').dropna()
+
+                                    st.area_chart(df_chart, x='Date', y='Value', color="#005792")
+                                    st.caption(f"Median {layer_name} over time")
+
+                                    # Export Data CSV
+                                    csv = df_chart.to_csv(index=False).encode('utf-8')
+                                    st.download_button("Download CSV", csv, "water_quality_ts.csv", "text/csv")
+                                else:
+                                    st.warning("No clear water pixels found (Try reducing cloud threshold).")
+
+                            except Exception as e:
+                                st.warning(f"Chart Error: {e}")
+                            st.markdown('</div>', unsafe_allow_html=True)
+
+                except Exception as e:
+                    st.error(f"Analysis Failed: {e}")
+
+        # --- COMMON EXPORT TOOLS ---
+        with col_res:
+            st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+            st.markdown('<div class="card-label">📥 EXPORTS</div>', unsafe_allow_html=True)
+
+            if st.button("Save to Drive (GeoTIFF)"):
+                if image_to_export:
+                    desc = f"GeoSarovar_{mode.split(' ')[1]}_{datetime.now().strftime('%Y%m%d')}"
+                    ee.batch.Export.image.toDrive(
+                        image=image_to_export, description=desc,
+                        scale=30, region=roi, folder='GeoSarovar_Exports'
+                    ).start()
+                    st.toast("Export started! Check Google Drive.")
                 else:
-                    st.error("No cloud-free images.")
+                    st.warning("No result to export.")
 
-    # --- TAB 2: VECTOR DATA ---
-    with tab2:
-        st.markdown("### Vector Analysis Results")
-        if vector_results is not None:
-            st.dataframe(vector_results, use_container_width=True)
-        else:
-            st.info("Run DL Segmentation to generate vector data.")
+            st.markdown("---")
+            report_title = st.text_input("Report Title", f"Analysis: {mode}")
+            if st.button("Generate Map Image"):
+                with st.spinner("Rendering..."):
+                    if image_to_export:
+                        # Determine visualization type
+                        is_cat = False
+                        c_names = None
+                        cmap = None
 
-    # --- TAB 3: 3D TERRAIN ---
-    with tab3:
-        st.markdown("### 3D Terrain Visualization")
-        st.info("Terrain visualization utilizes the SRTM DEM data used in the analysis.")
-        # Placeholder for visual consistency
+                        if mode == "Flood Extent Mapping":
+                            is_cat = True; c_names = ['Flood Extent']
+                        elif mode == "⚠️ Encroachment (S1 SAR)":
+                            is_cat = True; c_names = ['Stable Water', 'Encroachment', 'New Water']
+                        elif 'palette' in vis_export:
+                            cmap = vis_export['palette']
+
+                        buf = generate_static_map_display(image_to_export, roi, vis_export, report_title, cmap_colors=cmap, is_categorical=is_cat, class_names=c_names)
+                        if buf:
+                            st.download_button("Download JPG", buf, "GeoSarovar_Map.jpg", "image/jpeg", use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col_map:
+            m.to_streamlit()
