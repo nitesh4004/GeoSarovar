@@ -806,7 +806,7 @@ else:
         vis_export = {}
 
         # ==========================================
-        # LOGIC A: RWH SITE SUITABILITY (UPDATED)
+        # LOGIC A: RWH SITE SUITABILITY (FIXED)
         # ==========================================
         if mode == "📍 RWH Site Suitability":
             with st.spinner("AI Planning in Progress (Random Forest)..."):
@@ -834,9 +834,10 @@ else:
                 # Topographic Factors
                 slope = ee.Terrain.slope(dem).rename('slope')
                 
-                # Hydrology (Flow Accumulation from HydroSHEDS)
-                hydro = ee.Image("WWF/HydroSHEDS/03VFDEM").clip(roi)
-                flow_acc = hydro.select('b1').rename('flow_accumulation')
+                # Hydrology (Flow Accumulation from HydroSHEDS - ACC (Accumulation) not VFDEM (Elevation))
+                # Fixed: Use 15ACC for flow accumulation.
+                hydro_acc = ee.Image("WWF/HydroSHEDS/15ACC").clip(roi)
+                flow_acc = hydro_acc.select('b1').rename('flow_accumulation')
 
                 # Combine all features
                 features = ee.Image.cat([dem, slope, rainfall, flow_acc, soil, lulc])
@@ -853,7 +854,7 @@ else:
                     
                     # Structure specific constraints
                     if structure == "Check Dam":
-                        # Needs drainage lines (High Flow Acc) but moderate slope
+                        # Check dams need some slope but not too much, and defined drainage
                         struct_mask = image.select('slope').lt(15)
                     elif structure == "Farm Pond":
                         # Needs flat land
@@ -867,22 +868,24 @@ else:
                 processed_features = apply_constraints(features, p['rwh_type'])
 
                 # 4. TRAINING DATA CREATION (SIMULATED)
-                # Generates training points because we don't have real ground truth uploaded.
+                # We need to make the rules less strict for small ROIs or flatter terrain
                 def get_synthetic_training_data(roi, image):
-                    # Define rules for "Good" locations (Class 1) - High Flow + Low Slope
-                    high_suitability_rule = image.select('flow_accumulation').gt(500) \
-                        .And(image.select('slope').lt(10))
+                    # Fixed: Lowered flow accumulation threshold for robustness on smaller streams
+                    # Class 1: Good (High Flow + Low Slope)
+                    high_suitability_rule = image.select('flow_accumulation').gt(50) \
+                        .And(image.select('slope').lt(8))
                     
-                    # Define rules for "Bad" locations (Class 0) - Steep Slope
-                    low_suitability_rule = image.select('slope').gt(20)
+                    # Class 0: Bad (Steep Slope OR Very Low Flow)
+                    low_suitability_rule = image.select('slope').gt(15) \
+                        .Or(image.select('flow_accumulation').lt(10))
                     
-                    # Sample points
+                    # Sample points with explicit projection to avoid errors
                     points_good = image.updateMask(high_suitability_rule).sample(
-                        region=roi, scale=100, numPixels=50, geometries=True
+                        region=roi, scale=90, numPixels=30, geometries=True, tileScale=4
                     ).map(lambda f: f.set('class', 1))
                     
                     points_bad = image.updateMask(low_suitability_rule).sample(
-                        region=roi, scale=100, numPixels=50, geometries=True
+                        region=roi, scale=90, numPixels=30, geometries=True, tileScale=4
                     ).map(lambda f: f.set('class', 0))
                     
                     return points_good.merge(points_bad)
@@ -890,29 +893,35 @@ else:
                 training_data = get_synthetic_training_data(roi, processed_features)
 
                 # 5. AI / ML MODELING (Random Forest)
-                classifier = ee.Classifier.smileRandomForest(numberOfTrees=50) \
-                    .train(
-                        features=training_data,
-                        classProperty='class',
-                        inputProperties=feature_names
-                    )
-
-                # Classify the image
-                classified_suitability = processed_features.classify(classifier)
+                # Check if training data exists before training
+                count = training_data.size().getInfo()
                 
-                # 6. VISUALIZATION
-                vis_params_slope = {'min': 0, 'max': 30, 'palette': ['green', 'yellow', 'red']}
-                vis_params_rain = {'min': 0, 'max': 2000, 'palette': ['blue', 'cyan', 'green']}
-                vis_params_suitability = {'min': 0, 'max': 1, 'palette': ['red', 'green']} # Red=Bad, Green=Good
+                if count > 5: # Ensure minimum data points
+                    classifier = ee.Classifier.smileRandomForest(numberOfTrees=50) \
+                        .train(
+                            features=training_data,
+                            classProperty='class',
+                            inputProperties=feature_names
+                        )
+                    classified_suitability = processed_features.classify(classifier)
+                    
+                    # Visualization
+                    vis_params_slope = {'min': 0, 'max': 30, 'palette': ['green', 'yellow', 'red']}
+                    vis_params_rain = {'min': 0, 'max': 2000, 'palette': ['blue', 'cyan', 'green']}
+                    vis_params_suitability = {'min': 0, 'max': 1, 'palette': ['red', 'green']} # Red=Bad, Green=Good
 
-                m.addLayer(dem, {'min': 0, 'max': 1000, 'palette': ['black', 'white']}, 'DEM (Elevation)', False)
-                m.addLayer(slope, vis_params_slope, 'Slope', False)
-                m.addLayer(rainfall, vis_params_rain, 'Rainfall', False)
-                m.addLayer(classified_suitability, vis_params_suitability, 'Predicted Suitability (RF)', True)
-                m.addLayer(training_data, {'color': 'blue'}, 'Training Samples (Synthetic)', False)
+                    m.addLayer(dem, {'min': 0, 'max': 1000, 'palette': ['black', 'white']}, 'DEM (Elevation)', False)
+                    m.addLayer(slope, vis_params_slope, 'Slope', False)
+                    m.addLayer(flow_acc, {'min': 0, 'max': 500, 'palette': ['white', 'blue']}, 'Flow Accumulation', False)
+                    m.addLayer(classified_suitability, vis_params_suitability, 'Predicted Suitability (RF)', True)
+                    m.addLayer(training_data, {'color': 'blue'}, 'Training Samples (Synthetic)', False)
 
-                image_to_export = classified_suitability
-                vis_export = vis_params_suitability
+                    image_to_export = classified_suitability
+                    vis_export = vis_params_suitability
+
+                else:
+                    st.error("❌ Not enough valid terrain features found to train the model for this specific ROI. Try a larger area or different terrain.")
+                    classified_suitability = ee.Image(0) # Empty image
 
                 # 7. ANALYTICS (Right Column)
                 with col_res:
@@ -923,18 +932,21 @@ else:
                     st.info("✅ Algorithm: Random Forest (50 Trees)")
                     
                     # Statistics
-                    stats = rainfall.reduceRegion(
-                        reducer=ee.Reducer.mean(),
-                        geometry=roi,
-                        scale=1000,
-                        maxPixels=1e9
-                    ).getInfo()
-                    
-                    if stats:
-                         st.metric("Avg Rainfall", f"{stats.get('rainfall', 0):.2f} mm")
-                    else:
-                        st.warning("Stats unavailable for region")
+                    try:
+                        stats = rainfall.reduceRegion(
+                            reducer=ee.Reducer.mean(),
+                            geometry=roi,
+                            scale=1000,
+                            maxPixels=1e9
+                        ).getInfo()
                         
+                        if stats:
+                             st.metric("Avg Rainfall", f"{stats.get('rainfall', 0):.2f} mm")
+                        else:
+                            st.warning("Stats unavailable for region")
+                    except:
+                         st.warning("Could not calculate rainfall stats.")
+                         
                     st.markdown("---")
                     st.caption("Suitability based on synthetic training data derived from hydrological rules.")
                     st.markdown("</div>", unsafe_allow_html=True)
