@@ -1,6 +1,6 @@
 streamlit
-earthengine-api
 geemap
+earthengine-api
 pandas
 geopandas
 matplotlib
@@ -13,3 +13,4 @@ shapely
 torch
 segmentation-models-pytorch
 protobuf==3.20.*
+rtree
