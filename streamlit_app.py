@@ -149,6 +149,7 @@ except Exception as e:
 if 'calculated' not in st.session_state: st.session_state['calculated'] = False
 if 'roi' not in st.session_state: st.session_state['roi'] = None
 if 'mode' not in st.session_state: st.session_state['mode'] = "🌦️ Rainfall Analysis"
+if 'detected_state' not in st.session_state: st.session_state['detected_state'] = None # Store detected state
 
 # --- 5. APP HELPER FUNCTIONS ---
 
@@ -196,6 +197,21 @@ def geopandas_to_ee(gdf_row):
         geom = gjson['features'][0]['geometry'] if 'features' in gjson else gjson
         return ee.Geometry(geom)
     except: return None
+
+def detect_state_from_geometry(geometry):
+    """
+    Detects which Indian State the geometry center falls into using FAO GAUL.
+    """
+    try:
+        # FAO GAUL: Global Administrative Unit Layers 2015, Level 1 (States)
+        states = ee.FeatureCollection("FAO/GAUL/2015/level1")
+        # Find state intersecting the centroid of the ROI
+        center = geometry.centroid(100)
+        intersecting_state = states.filterBounds(center).first()
+        state_name = intersecting_state.get('ADM1_NAME').getInfo()
+        return state_name
+    except:
+        return None
 
 # --- ADVANCED STATIC MAP GENERATOR ---
 def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
@@ -291,7 +307,8 @@ with st.sidebar:
     roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
     new_roi = None
     
-    selected_state_name = None 
+    # We will use this variable to drive Smart Weights logic
+    current_state_context = None 
 
     if roi_method == "Upload KML":
         kml = st.file_uploader("Upload KML", type=['kml'])
@@ -313,7 +330,9 @@ with st.sidebar:
                 if 'STATE' in gdf.columns:
                     states = sorted(gdf['STATE'].astype(str).unique())
                     sel_state = st.selectbox("State", states)
-                    selected_state_name = sel_state 
+                    
+                    # Store selected state for smart weights logic
+                    current_state_context = sel_state 
                     
                     gdf = gdf[gdf['STATE'] == sel_state]
                     if 'District' in gdf.columns and not gdf.empty:
@@ -334,9 +353,25 @@ with st.sidebar:
         rad = st.number_input("Radius (m)", value=5000)
         new_roi = ee.Geometry.Point([lon, lat]).buffer(rad).bounds()
 
+    # --- ROI LOCKING & STATE DETECTION ---
     if new_roi:
         st.session_state['roi'] = new_roi.simplify(maxError=50)
-        st.success("ROI Locked ✅")
+        
+        # If we don't know the state yet (KML or Buffer mode), detect it now via GEE
+        if not current_state_context:
+            with st.spinner("Detecting Location..."):
+                detected = detect_state_from_geometry(new_roi)
+                if detected:
+                    st.session_state['detected_state'] = detected
+                    current_state_context = detected
+                    st.success(f"ROI Locked ✅ (Located in: {detected})")
+                else:
+                    st.success("ROI Locked ✅")
+        else:
+            # We already know the state from the dropdown
+            st.session_state['detected_state'] = current_state_context
+            st.success("ROI Locked ✅")
+
     st.markdown("---")
 
     params = {}
@@ -362,29 +397,32 @@ with st.sidebar:
         st.markdown("### 3. Suitability Criteria")
         rwh_type = st.selectbox("Target Structure", ["Percolation Tank (Recharge)", "Check Dam (Streams)", "Farm Pond (Storage)"])
         
-        # --- SMART AUTO-WEIGHT LOGIC ---
+        # --- SMART AUTO-WEIGHT LOGIC (WORKS FOR KML & DROPDOWN) ---
         # Default Weights (General / Plateau)
         def_rain, def_slope, def_soil, def_lulc, def_drain = 0.25, 0.20, 0.20, 0.15, 0.20
         geo_zone = "General (Plateau)"
 
-        if selected_state_name:
+        # Use the detected state (from KML or Dropdown)
+        state_for_logic = st.session_state.get('detected_state', None)
+
+        if state_for_logic:
             # 1. Arid / Semi-Arid (Rajasthan, Gujarat)
-            if selected_state_name in ["Rajasthan", "Gujarat", "Haryana"]:
+            if state_for_logic in ["Rajasthan", "Gujarat", "Haryana"]:
                 geo_zone = "Arid/Semi-Arid"
                 def_rain, def_slope, def_soil, def_lulc, def_drain = 0.35, 0.15, 0.25, 0.10, 0.15
             
             # 2. Hilly / Himalayan (Uttarakhand, HP, NE States)
-            elif selected_state_name in ["Himachal Pradesh", "Uttarakhand", "Sikkim", "Arunachal Pradesh", "Jammu and Kashmir", "Ladakh"]:
+            elif state_for_logic in ["Himachal Pradesh", "Uttarakhand", "Sikkim", "Arunachal Pradesh", "Jammu and Kashmir", "Ladakh"]:
                 geo_zone = "Hilly/Mountainous"
                 def_rain, def_slope, def_soil, def_lulc, def_drain = 0.10, 0.40, 0.15, 0.10, 0.25
             
             # 3. Coastal / High Rainfall (Kerala, Goa)
-            elif selected_state_name in ["Kerala", "Goa", "Konkan"]:
+            elif state_for_logic in ["Kerala", "Goa", "Konkan"]:
                 geo_zone = "Coastal/Wet"
                 def_rain, def_slope, def_soil, def_lulc, def_drain = 0.10, 0.30, 0.20, 0.20, 0.20
             
             # 4. Plains (UP, Bihar, WB, Punjab)
-            elif selected_state_name in ["Uttar Pradesh", "Bihar", "West Bengal", "Punjab"]:
+            elif state_for_logic in ["Uttar Pradesh", "Bihar", "West Bengal", "Punjab"]:
                 geo_zone = "Alluvial Plains"
                 def_rain, def_slope, def_soil, def_lulc, def_drain = 0.20, 0.10, 0.15, 0.30, 0.25
 
@@ -409,7 +447,6 @@ with st.sidebar:
                 'lulc': w_lulc/total, 'drain': w_drain/total
             }
         }
-        
 
     elif app_mode == "⚠️ Encroachment (S1 SAR)":
         st.markdown("### 3. Comparison Dates")
