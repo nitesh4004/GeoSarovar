@@ -4,13 +4,11 @@ geemap
 rasterio
 shapely
 geopandas
-segmentation-models-pytorch
-torch
 matplotlib
 numpy
 pandas
-gdown
 requests
 Pillow
 xarray
 rioxarray
+localtileserver
