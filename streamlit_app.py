@@ -174,7 +174,6 @@ def load_admin_data(url, is_gdrive=False):
     try:
         temp_dir = tempfile.mkdtemp()
         zip_path = os.path.join(temp_dir, "data.zip")
-        # Standard requests logic
         response = requests.get(url, stream=True)
         with open(zip_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
@@ -291,6 +290,8 @@ with st.sidebar:
     st.markdown("### 2. Location (ROI)")
     roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
     new_roi = None
+    
+    selected_state_name = None 
 
     if roi_method == "Upload KML":
         kml = st.file_uploader("Upload KML", type=['kml'])
@@ -312,6 +313,8 @@ with st.sidebar:
                 if 'STATE' in gdf.columns:
                     states = sorted(gdf['STATE'].astype(str).unique())
                     sel_state = st.selectbox("State", states)
+                    selected_state_name = sel_state 
+                    
                     gdf = gdf[gdf['STATE'] == sel_state]
                     if 'District' in gdf.columns and not gdf.empty:
                         dists = sorted(gdf['District'].astype(str).unique())
@@ -359,12 +362,41 @@ with st.sidebar:
         st.markdown("### 3. Suitability Criteria")
         rwh_type = st.selectbox("Target Structure", ["Percolation Tank (Recharge)", "Check Dam (Streams)", "Farm Pond (Storage)"])
         
+        # --- SMART AUTO-WEIGHT LOGIC ---
+        # Default Weights (General / Plateau)
+        def_rain, def_slope, def_soil, def_lulc, def_drain = 0.25, 0.20, 0.20, 0.15, 0.20
+        geo_zone = "General (Plateau)"
+
+        if selected_state_name:
+            # 1. Arid / Semi-Arid (Rajasthan, Gujarat)
+            if selected_state_name in ["Rajasthan", "Gujarat", "Haryana"]:
+                geo_zone = "Arid/Semi-Arid"
+                def_rain, def_slope, def_soil, def_lulc, def_drain = 0.35, 0.15, 0.25, 0.10, 0.15
+            
+            # 2. Hilly / Himalayan (Uttarakhand, HP, NE States)
+            elif selected_state_name in ["Himachal Pradesh", "Uttarakhand", "Sikkim", "Arunachal Pradesh", "Jammu and Kashmir", "Ladakh"]:
+                geo_zone = "Hilly/Mountainous"
+                def_rain, def_slope, def_soil, def_lulc, def_drain = 0.10, 0.40, 0.15, 0.10, 0.25
+            
+            # 3. Coastal / High Rainfall (Kerala, Goa)
+            elif selected_state_name in ["Kerala", "Goa", "Konkan"]:
+                geo_zone = "Coastal/Wet"
+                def_rain, def_slope, def_soil, def_lulc, def_drain = 0.10, 0.30, 0.20, 0.20, 0.20
+            
+            # 4. Plains (UP, Bihar, WB, Punjab)
+            elif selected_state_name in ["Uttar Pradesh", "Bihar", "West Bengal", "Punjab"]:
+                geo_zone = "Alluvial Plains"
+                def_rain, def_slope, def_soil, def_lulc, def_drain = 0.20, 0.10, 0.15, 0.30, 0.25
+
+        st.info(f"📍 Detected Zone: **{geo_zone}**")
+        st.caption("Weights auto-adjusted for this terrain.")
+
         st.markdown("**Criteria Weights (0-1)**")
-        w_rain = st.slider("Rainfall", 0.0, 1.0, 0.25, 0.05)
-        w_slope = st.slider("Slope (Topography)", 0.0, 1.0, 0.20, 0.05)
-        w_soil = st.slider("Soil Texture", 0.0, 1.0, 0.20, 0.05)
-        w_lulc = st.slider("Land Use", 0.0, 1.0, 0.15, 0.05)
-        w_drain = st.slider("Drainage Density", 0.0, 1.0, 0.20, 0.05)
+        w_rain = st.slider("Rainfall", 0.0, 1.0, def_rain, 0.05, help="Weight for Precipitation.")
+        w_slope = st.slider("Slope (Topography)", 0.0, 1.0, def_slope, 0.05, help="Weight for Slope.")
+        w_soil = st.slider("Soil Texture", 0.0, 1.0, def_soil, 0.05, help="Weight for Infiltration.")
+        w_lulc = st.slider("Land Use", 0.0, 1.0, def_lulc, 0.05, help="Avoid Urban/Agri conflicts.")
+        w_drain = st.slider("Drainage Density", 0.0, 1.0, def_drain, 0.05, help="Proximity to streams.")
         
         # Normalize weights
         total = w_rain + w_slope + w_soil + w_lulc + w_drain
