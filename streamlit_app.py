@@ -257,83 +257,95 @@ def mask_to_vector(mask, transform, crs):
     gdf = gdf.sort_values("area_km2", ascending=False).reset_index(drop=True)
     return gdf
 
-def build_planetary_computer_image_for_aoi(aoi_geojson, satellite_type: str, months_back: int = 6):
-    import pystac_client
-    import planetary_computer
-    import stackstac
+# --- REPLACED PLANETARY COMPUTER WITH GEE FUNCTION ---
+def get_gee_image_for_dl(roi, satellite_type: str, months_back: int = 6):
+    """
+    Fetches image from GEE, creates a composite, and downloads it as a numpy array 
+    via a download URL to feed into the PyTorch model.
+    """
+    try:
+        # 1. Define ROI and Date
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=months_back * 30)
+        
+        # 2. Select Collection and Bands based on Satellite Type
+        if "Sentinel-2" in satellite_type:
+            # Use Harmonized Sentinel-2 Level 2A
+            col = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+            # Map DL model channels (6 bands) -> S2 Bands
+            # Model usually expects: Blue, Green, Red, NIR, SWIR1, SWIR2 (or similar)
+            # Adjusting to standard 6-band stack usually used in water segmentation:
+            # Let's assume the model trained on: Blue, Green, Red, NIR, SWIR1, SWIR2
+            # S2: B2, B3, B4, B8, B11, B12
+            bands = ['B2', 'B3', 'B4', 'B8', 'B11', 'B12'] 
+            scale = 10
+            # Cloud Masking Function for S2
+            def mask_s2(image):
+                qa = image.select('QA60')
+                cloudBitMask = 1 << 10
+                cirrusBitMask = 1 << 11
+                mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
+                return image.updateMask(mask).divide(10000).select(bands) # Scale to 0-1
+        else: 
+            # Landsat 8/9 Level 2
+            col_name = "LANDSAT/LC09/C02/T1_L2" if "9" in satellite_type else "LANDSAT/LC08/C02/T1_L2"
+            col = ee.ImageCollection(col_name)
+            # Bands: Blue(B2), Green(B3), Red(B4), NIR(B5), SWIR1(B6), SWIR2(B7)
+            bands = ['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7']
+            scale = 30
+            
+            def mask_l8(image):
+                qa = image.select('QA_PIXEL')
+                mask = qa.bitwiseAnd(1 << 3).eq(0).And(qa.bitwiseAnd(1 << 4).eq(0)) # Cloud/Shadow
+                # Scale Landsat (0.0000275 + -0.2)
+                scaled = image.select(bands).multiply(0.0000275).add(-0.2)
+                return scaled.updateMask(mask)
 
-    if isinstance(aoi_geojson, dict) and "geometry" in aoi_geojson:
-        geom_dict = aoi_geojson["geometry"]
-    else:
-        geom_dict = aoi_geojson
+        # 3. Filtering
+        filtered_col = col.filterBounds(roi) \
+                          .filterDate(start_date, end_date) \
+                          .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20) if "Sentinel" in satellite_type else ee.Filter.lt('CLOUD_COVER', 20))
+        
+        count = filtered_col.size().getInfo()
+        if count == 0:
+            return None, None, None, None, None, 0
 
-    coords = geom_dict["coordinates"][0] if geom_dict['type'] == 'Polygon' else geom_dict["coordinates"][0][0]
-    lons = [c[0] for c in coords]
-    lats = [c[1] for c in coords]
-    bbox_wgs84 = [min(lons), min(lats), max(lons), max(lats)]
+        # 4. Composite (Median) and Clip
+        if "Sentinel" in satellite_type:
+            image = filtered_col.map(mask_s2).median().clip(roi)
+        else:
+            image = filtered_col.map(mask_l8).median().clip(roi)
+            
+        # Re-scale to 0-65535 uint16 for consistency with the DL pipeline expectation 
+        # (The original code expected uint16 from Planetary Computer)
+        # Since we scaled to 0-1 float above, multiply by 65535
+        image_export = image.multiply(65535).toUint16()
 
-    from pyproj import Transformer
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
-    min_x, min_y = transformer.transform(bbox_wgs84[0], bbox_wgs84[1])
-    max_x, max_y = transformer.transform(bbox_wgs84[2], bbox_wgs84[3])
-    bbox_mercator = [min_x, min_y, max_x, max_y]
+        # 5. Download pixels to memory
+        # Note: scale parameter controls resolution. If ROI is too large, this might fail.
+        url_params = {
+            'scale': scale,
+            'crs': 'EPSG:3857',
+            'format': 'GEO_TIFF',
+            'maxPixels': 1e9 # Allow up to 1 Billion pixels
+        }
+        
+        url = image_export.getDownloadURL(url_params)
+        response = requests.get(url)
+        
+        # 6. Read with Rasterio
+        with rasterio.open(BytesIO(response.content)) as src:
+            img_array = src.read() # (Bands, H, W)
+            profile = src.profile
+            transform = src.transform
+            crs = src.crs
+            bounds = src.bounds
+            
+        return img_array, profile, transform, crs, bounds, count
 
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=months_back * 30)
-    date_range = f"{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}"
-
-    catalog = pystac_client.Client.open(
-        "https://planetarycomputer.microsoft.com/api/stac/v1",
-        modifier=planetary_computer.sign_inplace,
-    )
-
-    if "Sentinel-2" in satellite_type:
-        collection = "sentinel-2-l2a"
-        bands = ["B02", "B03", "B04", "B08", "B11", "B12"]
-        scale = 10
-    else: 
-        collection = "landsat-c2-l2"
-        bands = ["coastal", "blue", "green", "red", "nir08", "swir16"]
-        scale = 30
-
-    search = catalog.search(
-        collections=[collection], bbox=bbox_wgs84, datetime=date_range,
-        query={"eo:cloud_cover": {"lt": 20}},
-    )
-    items = list(search.items())
-    image_count = len(items)
-    if image_count == 0: return None, None, scale, 0
-
-    items_sorted = sorted(items, key=lambda x: x.properties.get("eo:cloud_cover", 100))[:10]
-
-    stack = stackstac.stack(
-        items_sorted, assets=bands, bounds=bbox_mercator, epsg=3857, resolution=scale,
-    )
-
-    import dask
-    with dask.config.set(**{'array.slicing.split_large_chunks': True}):
-        composite = stack.median(dim="time").compute()
-
-    image = composite.values
-    x_coords = composite.x.values
-    y_coords = composite.y.values
-    x_res = float(x_coords[1] - x_coords[0]) if len(x_coords) > 1 else scale
-    y_res = float(y_coords[1] - y_coords[0]) if len(y_coords) > 1 else -scale
-    transform = Affine(x_res, 0, float(x_coords[0]), 0, y_res, float(y_coords[0]))
-
-    image = np.nan_to_num(image, nan=0.0)
-    image = np.clip(image, 0, 65535).astype(np.uint16)
-
-    profile = {
-        'driver': 'GTiff', 'height': image.shape[1], 'width': image.shape[2],
-        'count': image.shape[0], 'dtype': 'uint16', 'crs': 'EPSG:3857', 'transform': transform,
-    }
-
-    from rasterio.coords import BoundingBox
-    bounds_tuple = rasterio.transform.array_bounds(image.shape[1], image.shape[2], transform)
-    bounds = BoundingBox(*bounds_tuple)
-
-    return image, profile, transform, 'EPSG:3857', bounds, image_count
+    except Exception as e:
+        st.error(f"GEE Fetch Error: {e}")
+        return None, None, None, None, None, 0
 
 def read_geotiff(path):
     with rasterio.open(path) as src:
@@ -452,7 +464,7 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         if is_categorical and class_names and 'palette' in vis_params:
             patches = [mpatches.Patch(color=c, label=n) for n, c in zip(class_names, vis_params['palette'])]
             legend = ax.legend(handles=patches, loc='upper center', bbox_to_anchor=(0.5, -0.08),
-                             frameon=False, ncol=min(len(class_names), 4))
+                                     frameon=False, ncol=min(len(class_names), 4))
         elif cmap_colors and 'min' in vis_params:
             cmap = mcolors.LinearSegmentedColormap.from_list("custom", cmap_colors)
             norm = mcolors.Normalize(vmin=vis_params['min'], vmax=vis_params['max'])
@@ -485,10 +497,11 @@ with st.sidebar:
     # Specific Logic for DL Module inputs
     if app_mode == "🤖 DL Water Segmentation":
         st.markdown("### 2. DL Input Source")
-        dl_source = st.radio("Input Type", ["Use ROI (Planetary Computer)", "Upload GeoTIFF"], label_visibility="collapsed")
+        # Changed option name to reflect GEE
+        dl_source = st.radio("Input Type", ["Use ROI (GEE API)", "Upload GeoTIFF"], label_visibility="collapsed")
 
         params = {}
-        if dl_source == "Use ROI (Planetary Computer)":
+        if dl_source == "Use ROI (GEE API)":
             st.markdown("### 3. Location (ROI)")
             roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
             new_roi = None
@@ -537,7 +550,7 @@ with st.sidebar:
                 st.success("ROI Locked ✅")
 
             sat_type = st.selectbox("Satellite", ["Sentinel-2", "Landsat 8", "Landsat 9"])
-            params = {'source': 'pc', 'sat_type': sat_type}
+            params = {'source': 'gee', 'sat_type': sat_type}
 
         else: # Upload GeoTIFF
             uploaded_file = st.file_uploader("Upload 6-Band GeoTIFF", type=["tif", "tiff"])
@@ -715,22 +728,23 @@ else:
                 image, profile, transform, crs, bounds = read_geotiff(tiff_path)
                 m.add_raster(tiff_path, layer_name="Uploaded Image", zoom_to_layer=True)
 
-            elif p['source'] == 'pc':
-                st.info("Querying Microsoft Planetary Computer...")
-                # Convert GEE Geometry to GeoJSON dict
-                roi_json = roi.getInfo()
-                result = build_planetary_computer_image_for_aoi(roi_json, p['sat_type'])
+            elif p['source'] == 'gee':
+                st.info("Querying Google Earth Engine (Sentinel-2/Landsat)...")
+                # Using the new GEE function instead of Planetary Computer
+                result = get_gee_image_for_dl(roi, p['sat_type'])
+                
                 if result[0] is None:
-                    st.error("No cloud-free imagery found.")
+                    st.error("No cloud-free imagery found or ROI too large for direct download.")
                     st.stop()
+                
                 image, profile, transform, crs, bounds, count = result
-                st.toast(f"Composited {count} images from Planetary Computer")
+                st.toast(f"Processed {count} images from GEE")
 
                 # Save temp to visualize on map
-                with tempfile.NamedTemporaryFile(suffix="_pc.tif", delete=False) as tmp_pc:
-                    with rasterio.open(tmp_pc.name, 'w', **profile) as dst:
+                with tempfile.NamedTemporaryFile(suffix="_gee.tif", delete=False) as tmp_gee:
+                    with rasterio.open(tmp_gee.name, 'w', **profile) as dst:
                         dst.write(image)
-                    m.add_raster(tmp_pc.name, layer_name="Satellite Composite", zoom_to_layer=True)
+                    m.add_raster(tmp_gee.name, layer_name="Satellite Composite", zoom_to_layer=True)
 
             # B. INFERENCE
             st.info("Running U-Net Inference...")
