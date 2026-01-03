@@ -258,17 +258,13 @@ def mask_to_vector(mask, transform, crs):
     return gdf
 
 # --- REPLACED PLANETARY COMPUTER WITH GEE FUNCTION ---
-def get_gee_image_for_dl(roi, satellite_type: str, months_back: int = 6):
+def get_gee_image_for_dl(roi, satellite_type, start_date, end_date, cloud_cover):
     """
     Fetches image from GEE, creates a composite, and downloads it as a numpy array 
     via a download URL to feed into the PyTorch model.
     """
     try:
-        # 1. Define ROI and Date
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=months_back * 30)
-        
-        # 2. Select Collection and Bands based on Satellite Type
+        # 1. Select Collection and Bands based on Satellite Type
         if "Sentinel-2" in satellite_type:
             # Use Harmonized Sentinel-2 Level 2A
             col = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
@@ -301,16 +297,16 @@ def get_gee_image_for_dl(roi, satellite_type: str, months_back: int = 6):
                 scaled = image.select(bands).multiply(0.0000275).add(-0.2)
                 return scaled.updateMask(mask)
 
-        # 3. Filtering
+        # 2. Filtering with User Inputs
         filtered_col = col.filterBounds(roi) \
                           .filterDate(start_date, end_date) \
-                          .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20) if "Sentinel" in satellite_type else ee.Filter.lt('CLOUD_COVER', 20))
+                          .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cloud_cover) if "Sentinel" in satellite_type else ee.Filter.lt('CLOUD_COVER', cloud_cover))
         
         count = filtered_col.size().getInfo()
         if count == 0:
             return None, None, None, None, None, 0
 
-        # 4. Composite (Median) and Clip
+        # 3. Composite (Median) and Clip
         if "Sentinel" in satellite_type:
             image = filtered_col.map(mask_s2).median().clip(roi)
         else:
@@ -321,7 +317,7 @@ def get_gee_image_for_dl(roi, satellite_type: str, months_back: int = 6):
         # Since we scaled to 0-1 float above, multiply by 65535
         image_export = image.multiply(65535).toUint16()
 
-        # 5. Download pixels to memory
+        # 4. Download pixels to memory
         # Note: scale parameter controls resolution. If ROI is too large, this might fail.
         url_params = {
             'scale': scale,
@@ -333,7 +329,7 @@ def get_gee_image_for_dl(roi, satellite_type: str, months_back: int = 6):
         url = image_export.getDownloadURL(url_params)
         response = requests.get(url)
         
-        # 6. Read with Rasterio
+        # 5. Read with Rasterio
         with rasterio.open(BytesIO(response.content)) as src:
             img_array = src.read() # (Bands, H, W)
             profile = src.profile
@@ -550,7 +546,22 @@ with st.sidebar:
                 st.success("ROI Locked ✅")
 
             sat_type = st.selectbox("Satellite", ["Sentinel-2", "Landsat 8", "Landsat 9"])
-            params = {'source': 'gee', 'sat_type': sat_type}
+            
+            # --- NEW: Date & Cloud Inputs ---
+            st.markdown("### 4. Imagery Parameters")
+            col1, col2 = st.columns(2)
+            # Default last 6 months
+            dl_start = col1.date_input("Start Date", datetime.now() - timedelta(days=180))
+            dl_end = col2.date_input("End Date", datetime.now())
+            dl_cloud = st.slider("Max Cloud Cover %", 0, 100, 10)
+            
+            params = {
+                'source': 'gee', 
+                'sat_type': sat_type,
+                'start': dl_start.strftime("%Y-%m-%d"),
+                'end': dl_end.strftime("%Y-%m-%d"),
+                'cloud': dl_cloud
+            }
 
         else: # Upload GeoTIFF
             uploaded_file = st.file_uploader("Upload 6-Band GeoTIFF", type=["tif", "tiff"])
@@ -730,11 +741,11 @@ else:
 
             elif p['source'] == 'gee':
                 st.info("Querying Google Earth Engine (Sentinel-2/Landsat)...")
-                # Using the new GEE function instead of Planetary Computer
-                result = get_gee_image_for_dl(roi, p['sat_type'])
+                # Updated call to use date and cloud params
+                result = get_gee_image_for_dl(roi, p['sat_type'], p['start'], p['end'], p['cloud'])
                 
                 if result[0] is None:
-                    st.error("No cloud-free imagery found or ROI too large for direct download.")
+                    st.error("No cloud-free imagery found or ROI too large for direct download. Try adjusting the Date Range or Cloud Threshold.")
                     st.stop()
                 
                 image, profile, transform, crs, bounds, count = result
