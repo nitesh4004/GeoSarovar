@@ -1,101 +1,70 @@
-# GeoSarovar - Geospatial Rainwater Harvesting Optimization
+# 💧 **GeoSarovar** – Intelligent Rainwater Harvesting Site Selection
 
-<div align="center">
-
-[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Web Tool](https://img.shields.io/badge/web-tool-brightgreen.svg)](https://github.com/nitesh4004/GeoSarovar)
-[![Status](https://img.shields.io/badge/status-active-success.svg)](#)
-
-**Geospatial Intelligence for Sustainable Rainwater Harvesting**
-
-</div>
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Geospatial](https://img.shields.io/badge/Geospatial-Water%20Conservation-cyan)](#)
+[![Status: Active](https://img.shields.io/badge/Status-Active-success)](#)
 
 ---
 
-## 🌐 Overview
+## 📋 **Overview**
 
-GeoSarovar is an advanced geospatial analysis tool designed to identify optimal locations for constructing **Amrit Sarovar ponds** (rainwater harvesting structures) in agricultural and semi-arid regions. By leveraging satellite imagery, topographic data, and hydrological analysis, the tool supports scientific planning of water conservation infrastructure.
+**GeoSarovar** is an advanced geospatial intelligence platform designed to identify optimal locations for constructing **Amrit Sarovar** rainwater harvesting structures. By integrating satellite imagery, topographic analysis, and hydrological data, GeoSarovar enables scientists and water resource managers to make evidence-based decisions for sustainable water conservation infrastructure.
 
-This project demonstrates expertise in:
-- **Geospatial Analysis** (GIS, spatial data processing)
-- **Remote Sensing** (satellite imagery interpretation)
-- **Hydrology & Water Resources** (runoff, drainage analysis)
-- **Web Development** (Streamlit-based applications)
-- **Environmental Planning** (sustainable development)
+### 🎯 **Core Mission**
+
+Scientific planning of rainwater harvesting systems to ensure water conservation is implemented at strategically optimal locations, maximizing recharge rates and community benefit.
 
 ---
 
-## ✨ Key Features
+## ✨ **Key Features**
 
-✅ **Intelligent Site Selection** - Automated identification of optimal locations using multi-criteria analysis  
-✅ **Topographic Analysis** - Slope, drainage pattern, and elevation evaluation  
-✅ **Hydrological Modeling** - Runoff estimation and water availability assessment  
-✅ **Satellite Integration** - Real-time satellite data for vegetation and soil moisture analysis  
-✅ **Interactive Mapping** - Folium-based interactive maps for visualization  
-✅ **Customizable Parameters** - Adjust criteria weights for region-specific optimization  
-✅ **Exportable Reports** - Generate PDF reports with recommendations  
+### **🌍 Multi-Source Geospatial Analysis**
 
----
+- **Satellite Imagery Integration**: Sentinel-2, Landsat data for land cover analysis
+- **DEM & Topographic Analysis**: Slope, aspect, curvature computation for optimal site selection
+- **Hydrological Modeling**: Runoff estimation, infiltration analysis, groundwater potential mapping
+- **Vector Analytics**: Water body mapping, drainage network extraction, watershed delineation
 
-## 🐛 Core Technology Stack
+### **💧 Hydrological Assessment**
 
-| Component | Technology |
-|-----------|------------|
-| **GIS Processing** | GeoPandas, GDAL, Rasterio |
-| **Data Analysis** | NumPy, Pandas, SciPy |
-| **Web Framework** | Streamlit, Flask |
-| **Mapping** | Folium, Leaflet |
-| **Visualization** | Matplotlib, Seaborn |
-| **Geospatial** | Shapely, Proj |
+- **Runoff Calculation**: Rainfall-runoff modeling using soil properties and LULC data
+- **Infiltration Analysis**: Soil permeability assessment and recharge potential evaluation
+- **Groundwater Potential**: Integration of geological, pedological, and geomorphological parameters
+- **Water Availability Index**: Composite scoring for site suitability
 
----
+### **🔍 Spatial Multi-Criteria Analysis**
 
-## 🖌️ Technical Architecture
+- **Weighted Overlay Analysis**: Combine multiple criteria with user-defined weights
+- **Site Suitability Scoring**: 0-100 index for rainwater harvesting potential
+- **Constraint Mapping**: Exclude unsuitable areas (protected zones, urban areas)
+- **Priority Zoning**: Identify high, medium, low suitability zones
 
-### Data Pipeline
-```
-Satellite Data (Sentinel-2, Landsat)
-    ↓
-DEM & Topographic Data
-    ↓
-Soil & Land Cover Classification
-    ↓
-Hydrological Analysis
-    ↓
-Multi-Criteria Evaluation
-    ↓
-Site Ranking & Optimization
-    ↓
-Visualization & Reporting
-```
+### **📊 Analytics & Reporting**
 
-### Analysis Criteria
-1. **Topographic Factors**
-   - Slope (2-15% optimal)
-   - Elevation (for gravity-fed systems)
-   - Aspect (orientation for solar access)
+- **Site Ranking**: List potential locations by suitability score
+- **Spatial Visualization**: Publication-ready maps with legends and scale bars
+- **Hydrological Metrics**: Water yield potential, infiltration rates, storage capacity
+- **Statistical Analysis**: Distribution analysis, hotspot identification
 
-2. **Hydrological Factors**
-   - Drainage density
-   - Runoff coefficient
-   - Ground water depth
+### **💾 Data Export**
 
-3. **Land Cover & Soil**
-   - Permeability index
-   - Soil type suitability
-   - Vegetation cover
-
-4. **Infrastructure & Social**
-   - Proximity to villages
-   - Land ownership patterns
-   - Agricultural productivity zones
+- **GeoTIFF Rasters**: Cloud-optimized geospatial data for GIS analysis
+- **Shapefile Vectors**: Point/polygon site recommendations
+- **Report Generation**: Automated PDF reports with analysis methodology
 
 ---
 
-## 🚀 Quick Start
+## 🚀 **Quick Start**
 
-### Installation
+### **Prerequisites**
+
+- Python 3.8+
+- GDAL/GEOS libraries
+- Satellite imagery access (Sentinel-2, Landsat)
+- DEM data (SRTM 30m recommended)
+
+### **Installation**
 
 ```bash
 # Clone repository
@@ -103,144 +72,156 @@ git clone https://github.com/nitesh4004/GeoSarovar.git
 cd GeoSarovar
 
 # Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
-```
 
-### Running the Application
-
-```bash
-# Launch Streamlit web app
+# Run Streamlit application
 streamlit run streamlit_app.py
+```
 
-# Access at http://localhost:8501
+### **Access Application**
+
+Open browser to `http://localhost:8501`
+
+---
+
+## 📂 **Project Structure**
+
+```
+GeoSarovar/
+├── streamlit_app.py          # Main Streamlit web interface
+├── requirements.txt          # Python dependencies
+├── README.md                 # Documentation
+├── geosar ovar.png          # Project branding
+├── packages.txt             # Package specifications
+└── .devcontainer/           # Docker development environment
 ```
 
 ---
 
-## 📄 Usage Guide
+## 🧪 **Methodology**
 
-### Step 1: Upload Data
-- Upload DEM (Digital Elevation Model) in GeoTIFF format
-- Provide boundary shapefile (administrative/study area)
-- Optional: Land use/land cover (LULC) map
+### **1. Data Preparation**
 
-### Step 2: Configure Parameters
-- Set slope thresholds (ideal range: 2-15%)
-- Define drainage density weights
-- Specify soil permeability criteria
-- Adjust importance weights for different factors
+| Data Type | Source | Resolution | Application |
+|-----------|--------|------------|-------------|
+| **DEM** | SRTM/ASTER | 30m | Slope, aspect, curvature |
+| **Rainfall** | IMD/MERRA2 | 0.25°-5km | Runoff calculation |
+| **Soil** | ISRIC/NBSS | 250m | Infiltration rate |
+| **LULC** | Sentinel-2/Landsat | 10-30m | Land cover classification |
+| **Geology** | GSI/Published maps | Vector | Permeability assessment |
 
-### Step 3: Run Analysis
-- Click "Analyze" to process spatial data
-- Algorithm identifies suitable sites using weighted overlay analysis
-- Sites ranked by combined suitability score
+### **2. Suitability Criteria**
 
-### Step 4: Visualize & Export
-- Interactive map shows top-ranked sites
-- Download shapefile of recommended locations
-- Export detailed PDF report with statistics
+| Criterion | Weight | Low | Medium | High |
+|-----------|--------|-----|--------|------|
+| **Slope** | 25% | >30° | 10-30° | <10° |
+| **Rainfall** | 20% | <400mm | 400-800mm | >800mm |
+| **Infiltration** | 20% | <5cm/hr | 5-10cm/hr | >10cm/hr |
+| **LULC** | 20% | Urban/Water | Mix crops/trees | Barren/grass |
+| **Distance to roads** | 15% | <500m | 500-1500m | >1500m |
 
----
+### **3. Site Ranking**
 
-## 📁 Input Data Requirements
+Final suitability score calculated using:
 
-### Essential Data
-- **DEM**: 30m resolution minimum (SRTM or ASTER available free)
-- **Study Area Boundary**: Polygon shapefile in WGS84 (EPSG:4326)
+**Suitability = Σ (Criterion Value × Weight)**
 
-### Optional Data
-- **LULC Map**: Classification from Sentinel-2 or Landsat
-- **Soil Map**: Soil type and permeability data
-- **Rainfall**: Annual/monsoon precipitation data
-- **Population**: Settlement locations and density
-
-### Data Sources
-- **DEMs**: USGS EarthExplorer, NASA EOSDIS
-- **Satellite Data**: Sentinel Hub, Google Earth Engine
-- **Administrative Boundaries**: OpenStreetMap, GADM
-- **Soil Data**: FAO, National Soil Bureaus
+Range: 0-100 (Higher = Better)
 
 ---
 
-## 📊 Output & Results
+## 💡 **Use Cases**
 
-The tool generates:
+1. **District-Level Water Security Planning**
+   - Multi-block rainwater harvesting infrastructure planning
+   - Climate-adaptive water resource management
 
-1. **Suitability Map** - Color-coded raster showing site appropriateness
-2. **Ranked Sites** - Vector layer of top candidate locations with scores
-3. **Hydrological Map** - Drainage lines, flow accumulation, watersheds
-4. **Statistical Report** - Area statistics, feasibility assessment
-5. **Implementation Guide** - Recommended construction specifications
+2. **Agricultural Water Management**
+   - Irrigation pond placement for crop productivity
+   - Aquifer recharge optimization
 
----
+3. **Rural Development**
+   - PMKSY-AIBP implementation planning
+   - Community water security projects
 
-## 📈 Case Studies
+4. **Environmental Assessment**
+   - Drought mitigation strategy formulation
+   - Hydrological balance restoration
 
-GeoSarovar has been applied in:
-- **Rajasthan (India)** - Arid region water harvesting planning
-- **Gujarat** - Agricultural sustainability projects
-- **Semi-arid zones** - Community water management
-
-**Results**: Identified 45-60% more suitable sites compared to traditional methods with 70-80% cost savings.
-
----
-
-## 📛 Methodology References
-
-- FAO Guidelines on Land Suitability Assessment
-- USGS Hydrological Modeling Standards
-- Indian Standards on Water Harvesting (IS:14235)
-- UNCCD Guidelines on Drought Mitigation
+5. **Urban-Rural Integration**
+   - Integrated water management for peri-urban regions
+   - Flood risk reduction through retention structures
 
 ---
 
-## 👤 Contributing
+## 📊 **Technical Stack**
 
-Contributions welcome! Please:
+| Component | Technology | Purpose |
+|-----------|-----------|----------|
+| **Frontend** | Streamlit | Interactive web interface |
+| **Geospatial** | GeoPandas, Rasterio | Vector/raster operations |
+| **Analysis** | GDAL/GEOS, NumPy, SciPy | Spatial algorithms |
+| **Visualization** | Folium, Leaflet.js | Interactive mapping |
+| **Data Processing** | Pandas | Tabular data handling |
+| **Deployment** | Streamlit Cloud | Cloud hosting |
+
+---
+
+## 🤝 **Contributing**
+
+Contributions welcome! To contribute:
 
 1. Fork the repository
-2. Create feature branch (`git checkout -b feature/improvement`)
-3. Commit changes (`git commit -m 'Add feature'`)
-4. Push to branch (`git push origin feature/improvement`)
+2. Create feature branch: `git checkout -b feature/enhancement`
+3. Commit changes: `git commit -m "Add feature"`
+4. Push to branch: `git push origin feature/enhancement`
 5. Open Pull Request
 
 ---
 
-## 📝 License
+## 📜 **License**
 
-MIT License - See LICENSE file for details
-
----
-
-## 👨‍💼 Author
-
-**Nitesh Kumar**  
-Senior Data Scientist | GIS Specialist | Remote Sensing Engineer  
-Email: nitesh4004@email.com  
-GitHub: [@nitesh4004](https://github.com/nitesh4004)  
+MIT License – See LICENSE file for details.
 
 ---
 
-## 🙏 Acknowledgments
+## 📬 **Contact & Support**
 
-- USGS, NASA for open geospatial data
-- OpenGIS community for spatial tools
-- FAO for sustainable development guidelines
-- Streamlit team for excellent framework
+**Author:** Nitesh Kumar  
+**Role:** Geospatial Data Scientist  
+**Email:** nitesh.gulzar@gmail.com  
+**GitHub:** [@nitesh4004](https://github.com/nitesh4004)  
+**Portfolio:** [nitesh4004.github.io](https://nitesh4004.github.io/)  
 
----
+### **Support Channels**
 
-## 📞 Support & Contact
-
-For questions or collaboration:
-- 📧 Email: nitesh4004@email.com
-- 🐛 GitHub: [nitesh4004](https://github.com/nitesh4004)
-- 💡 Issues: [Report Bug](https://github.com/nitesh4004/GeoSarovar/issues)
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/nitesh4004/GeoSarovar/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/nitesh4004/GeoSarovar/discussions)
+- 📧 **Email**: For custom implementations or consultancy
 
 ---
 
-**Status**: ✅ Production Ready | **Last Updated**: January 2026
+## 🎯 **Roadmap**
+
+- [ ] Groundwater model integration (FEFLOW)
+- [ ] Climate scenario planning (RCP 4.5/8.5)
+- [ ] Real-time rainfall monitoring integration
+- [ ] Mobile app for field verification
+- [ ] API for programmatic access
+
+---
+
+## 📚 **References**
+
+- [Amrit Sarovar Scheme - MoJWS](https://pib.gov.in/PressReleasePage.aspx?PRID=1696816)
+- [SRTM DEM Data](https://earthexplorer.usgs.gov/)
+- [Sentinel-2 Documentation](https://sentinel.esa.int/web/sentinel/missions/sentinel-2)
+- [Hydrological Modeling - USGS](https://www.usgs.gov/faqs/what-difference-between-runoff-and-infiltration)
+
+---
+
+**Made with 💧 by Nitesh Kumar | GIS Engineer @ SWANSAT OPC Pvt. Ltd**
