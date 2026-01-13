@@ -305,11 +305,13 @@ with st.sidebar:
             st.session_state['roi'] = new_roi
             
     elif roi_method == "Draw on Map":
-        st.info("👉 Use the Polygon tool (⬠) on the map to draw your area of interest.")
+        # Instructions handled in main area
         if st.session_state['roi'] is not None:
-            if st.button("🗑️ Reset / Draw New"):
+             st.info(f"📍 ROI Set: {st.session_state.get('detected_state', 'Custom Area')}")
+             if st.button("🗑️ Reset / Draw New"):
                 st.session_state['roi'] = None
                 st.session_state['calculated'] = False
+                st.session_state['detected_state'] = None
                 st.rerun()
 
     # --- ROI LOCKING & STATE DETECTION ---
@@ -468,33 +470,35 @@ def get_safe_map(height=500):
 
 # --- CASE 1: DRAW MODE ACTIVE, ROI NOT SET ---
 if roi_method == "Draw on Map" and st.session_state['roi'] is None:
-    st.info("🗺️ **Action Required:** Please draw a Polygon on the map below to define your study area.")
+    st.info("🗺️ **Instructions:**\n1. Use the **Polygon** or **Rectangle** tool on the map sidebar.\n2. Draw your area of interest.\n3. Click the **'✅ Set as ROI'** button below to lock it.")
     
-    # Instantiate Map for Drawing
-    m_draw = geemap.Map(height=600, basemap="HYBRID", center=[20.59, 78.96], zoom=5)
-    
-    # FIXED: Removed m_draw.add_draw_control() as it caused AttributeError.
-    # The drawing functionality is handled by default in the Streamlit component.
+    # Instantiate Map for Drawing (Default tools are included)
+    m_draw = geemap.Map(height=550, basemap="HYBRID", center=[20.59, 78.96], zoom=5)
     
     # Capture map output
-    map_output = m_draw.to_streamlit(width=None, height=600)
+    map_output = m_draw.to_streamlit(width=None, height=550)
 
-    # Process Drawing
-    if map_output and 'last_active_drawing' in map_output and map_output['last_active_drawing']:
-        drawn_geom = map_output['last_active_drawing']['geometry']
-        ee_geom = geojson_to_ee(drawn_geom)
-        
-        if ee_geom:
-            st.session_state['roi'] = ee_geom
+    # Confirm Button Logic
+    if st.button("✅ Set as ROI", type="primary"):
+        if map_output and 'last_active_drawing' in map_output and map_output['last_active_drawing']:
+            drawn_geom = map_output['last_active_drawing']['geometry']
+            ee_geom = geojson_to_ee(drawn_geom)
             
-            # Detect State Immediately
-            with st.spinner("Locking Region & Detecting State..."):
-                detected = detect_state_from_geometry(ee_geom)
-                if detected:
-                    st.session_state['detected_state'] = detected
+            if ee_geom:
+                st.session_state['roi'] = ee_geom
                 
-            st.success("ROI Captured! Please click 'RUN ANALYSIS' in the sidebar.")
-            st.rerun()
+                # Detect State Immediately
+                with st.spinner("Locking Region & Detecting State..."):
+                    detected = detect_state_from_geometry(ee_geom)
+                    if detected:
+                        st.session_state['detected_state'] = detected
+                    else:
+                        st.session_state['detected_state'] = "Custom Area"
+                
+                st.success("ROI Locked! Please click 'RUN ANALYSIS' in the sidebar.")
+                st.rerun()
+        else:
+            st.warning("⚠️ No drawing detected! Please draw a polygon on the map first.")
 
 # --- CASE 2: ROI IS SET BUT NOT CALCULATED YET ---
 elif not st.session_state['calculated']:
