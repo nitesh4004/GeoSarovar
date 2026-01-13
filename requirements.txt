@@ -1,14 +1,10 @@
 streamlit
 earthengine-api
 geemap
-rasterio
-shapely
-geopandas
+folium
+requests
 matplotlib
 numpy
 pandas
-requests
+geopandas
 Pillow
-xarray
-rioxarray
-localtileserver
