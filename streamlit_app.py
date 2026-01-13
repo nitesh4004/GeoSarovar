@@ -480,7 +480,8 @@ if roi_method == "Draw on Map" and st.session_state['roi'] is None:
 
     # Confirm Button Logic
     if st.button("✅ Set as ROI", type="primary"):
-        if map_output and 'last_active_drawing' in map_output and map_output['last_active_drawing']:
+        # RECTIFIED CODE: Added isinstance check to prevent TypeError
+        if map_output and isinstance(map_output, dict) and map_output.get('last_active_drawing'):
             drawn_geom = map_output['last_active_drawing']['geometry']
             ee_geom = geojson_to_ee(drawn_geom)
             
