@@ -281,21 +281,14 @@ with st.sidebar:
 
     # --- UPDATED LOCATION LOGIC ---
     st.markdown("### 2. Location (ROI)")
-    roi_method = st.radio("Selection Mode", ["Draw on Map", "Upload KML", "Point & Buffer"], label_visibility="collapsed")
+    # Reordered Menu as requested
+    roi_method = st.radio("Selection Mode", ["Upload KML", "Point & Buffer", "Draw on Map"], label_visibility="collapsed")
     new_roi = None
     
     # Context variable for smart weights
     current_state_context = st.session_state.get('detected_state', None)
 
-    if roi_method == "Draw on Map":
-        st.info("👉 Use the Polygon tool (⬠) on the map to draw your area of interest.")
-        if st.session_state['roi'] is not None:
-            if st.button("🗑️ Reset / Draw New"):
-                st.session_state['roi'] = None
-                st.session_state['calculated'] = False
-                st.rerun()
-
-    elif roi_method == "Upload KML":
+    if roi_method == "Upload KML":
         kml = st.file_uploader("Upload KML", type=['kml'])
         if kml: 
             new_roi = parse_kml(kml.read())
@@ -310,6 +303,14 @@ with st.sidebar:
         new_roi = ee.Geometry.Point([lon, lat]).buffer(rad).bounds()
         if new_roi:
             st.session_state['roi'] = new_roi
+            
+    elif roi_method == "Draw on Map":
+        st.info("👉 Use the Polygon tool (⬠) on the map to draw your area of interest.")
+        if st.session_state['roi'] is not None:
+            if st.button("🗑️ Reset / Draw New"):
+                st.session_state['roi'] = None
+                st.session_state['calculated'] = False
+                st.rerun()
 
     # --- ROI LOCKING & STATE DETECTION ---
     # Note: For "Draw on Map", detection happens in the main body after drawing
@@ -471,7 +472,9 @@ if roi_method == "Draw on Map" and st.session_state['roi'] is None:
     
     # Instantiate Map for Drawing
     m_draw = geemap.Map(height=600, basemap="HYBRID", center=[20.59, 78.96], zoom=5)
-    m_draw.add_draw_control() 
+    
+    # FIXED: Removed m_draw.add_draw_control() as it caused AttributeError.
+    # The drawing functionality is handled by default in the Streamlit component.
     
     # Capture map output
     map_output = m_draw.to_streamlit(width=None, height=600)
