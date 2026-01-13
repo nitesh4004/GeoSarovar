@@ -13,10 +13,6 @@ from io import BytesIO
 from PIL import Image
 from datetime import datetime, timedelta
 import pandas as pd
-import geopandas as gpd
-import zipfile
-import os
-import tempfile
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(
@@ -149,7 +145,7 @@ except Exception as e:
 if 'calculated' not in st.session_state: st.session_state['calculated'] = False
 if 'roi' not in st.session_state: st.session_state['roi'] = None
 if 'mode' not in st.session_state: st.session_state['mode'] = "🌦️ Rainfall Analysis"
-if 'detected_state' not in st.session_state: st.session_state['detected_state'] = None # Store detected state
+if 'detected_state' not in st.session_state: st.session_state['detected_state'] = None 
 
 # --- 5. APP HELPER FUNCTIONS ---
 
@@ -170,42 +166,23 @@ def process_coords(text):
     coords = [[float(x.split(',')[0]), float(x.split(',')[1])] for x in raw if len(x.split(',')) >= 2]
     return ee.Geometry.Polygon([coords]) if len(coords) > 2 else None
 
-@st.cache_data(show_spinner=False)
-def load_admin_data(url, is_gdrive=False):
+def geojson_to_ee(geo_json):
+    """Converts a GeoJSON geometry dictionary to an Earth Engine Geometry."""
     try:
-        temp_dir = tempfile.mkdtemp()
-        zip_path = os.path.join(temp_dir, "data.zip")
-        response = requests.get(url, stream=True)
-        with open(zip_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
-        
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref: zip_ref.extractall(temp_dir)
-        for root, dirs, files in os.walk(temp_dir):
-            for file in files:
-                if file.endswith(".shp") or file.endswith(".geojson"):
-                    gdf = gpd.read_file(os.path.join(root, file))
-                    col_map = {'STATE_UT': 'STATE', 'State': 'STATE', 'Name': 'District', 'Sub_dist': 'Subdistrict'}
-                    gdf.rename(columns=col_map, inplace=True)
-                    if gdf.crs != "EPSG:4326": gdf = gdf.to_crs("EPSG:4326")
-                    return gdf
+        if geo_json['type'] == 'Polygon':
+            return ee.Geometry.Polygon(geo_json['coordinates'])
+        elif geo_json['type'] == 'Point':
+            return ee.Geometry.Point(geo_json['coordinates'])
         return None
-    except: return None
-
-def geopandas_to_ee(gdf_row):
-    try:
-        gjson = json.loads(gdf_row.geometry.to_json())
-        geom = gjson['features'][0]['geometry'] if 'features' in gjson else gjson
-        return ee.Geometry(geom)
-    except: return None
+    except:
+        return None
 
 def detect_state_from_geometry(geometry):
     """
     Detects which Indian State the geometry center falls into using FAO GAUL.
     """
     try:
-        # FAO GAUL: Global Administrative Unit Layers 2015, Level 1 (States)
         states = ee.FeatureCollection("FAO/GAUL/2015/level1")
-        # Find state intersecting the centroid of the ROI
         center = geometry.centroid(100)
         intersecting_state = states.filterBounds(center).first()
         state_name = intersecting_state.get('ADM1_NAME').getInfo()
@@ -302,75 +279,51 @@ with st.sidebar:
                         label_visibility="collapsed")
     st.markdown("---")
 
-    # Standard GEE Input Logic for all modules
+    # --- UPDATED LOCATION LOGIC ---
     st.markdown("### 2. Location (ROI)")
-    roi_method = st.radio("Selection Mode", ["Upload KML", "Select Admin Boundary", "Point & Buffer"], label_visibility="collapsed")
+    roi_method = st.radio("Selection Mode", ["Draw on Map", "Upload KML", "Point & Buffer"], label_visibility="collapsed")
     new_roi = None
     
-    # We will use this variable to drive Smart Weights logic
-    current_state_context = None 
+    # Context variable for smart weights
+    current_state_context = st.session_state.get('detected_state', None)
 
-    if roi_method == "Upload KML":
+    if roi_method == "Draw on Map":
+        st.info("👉 Use the Polygon tool (⬠) on the map to draw your area of interest.")
+        if st.session_state['roi'] is not None:
+            if st.button("🗑️ Reset / Draw New"):
+                st.session_state['roi'] = None
+                st.session_state['calculated'] = False
+                st.rerun()
+
+    elif roi_method == "Upload KML":
         kml = st.file_uploader("Upload KML", type=['kml'])
-        if kml: new_roi = parse_kml(kml.read())
-    elif roi_method == "Select Admin Boundary":
-        admin_level = st.selectbox("Granularity", ["Districts", "Subdistricts", "States"])
-        data_url = None
-        is_drive = False
-        if admin_level == "Districts":
-            data_url = 'https://drive.google.com/uc?id=1tMyiUheQBcwwPwZQla67PwC5-AqenTmv'; is_drive = True
-        elif admin_level == "Subdistricts":
-            data_url = 'https://drive.google.com/uc?id=18lMyt2j3Xjz_Qk_2Kzppr8EVlVDx_yOv'; is_drive = True
-        elif admin_level == "States":
-            data_url = "https://github.com/nitesh4004/GeoFormatX/raw/main/STATE_BOUNDARY.zip"; is_drive = False
-        if data_url:
-            with st.spinner("Fetching Data..."):
-                gdf = load_admin_data(data_url, is_drive)
-            if gdf is not None:
-                if 'STATE' in gdf.columns:
-                    states = sorted(gdf['STATE'].astype(str).unique())
-                    sel_state = st.selectbox("State", states)
-                    
-                    # Store selected state for smart weights logic
-                    current_state_context = sel_state 
-                    
-                    gdf = gdf[gdf['STATE'] == sel_state]
-                    if 'District' in gdf.columns and not gdf.empty:
-                        dists = sorted(gdf['District'].astype(str).unique())
-                        sel_dist = st.selectbox("District", dists)
-                        gdf = gdf[gdf['District'] == sel_dist]
-                        if 'Subdistrict' in gdf.columns and not gdf.empty:
-                            subs = sorted(gdf['Subdistrict'].astype(str).unique())
-                            sel_sub = st.selectbox("Subdistrict", subs)
-                            gdf = gdf[gdf['Subdistrict'] == sel_sub]
-                if not gdf.empty:
-                    new_roi = geopandas_to_ee(gdf.iloc[[0]])
-                    st.info(f"Selected: {len(gdf)} Feature")
+        if kml: 
+            new_roi = parse_kml(kml.read())
+            if new_roi:
+                st.session_state['roi'] = new_roi.simplify(maxError=50)
+
     elif roi_method == "Point & Buffer":
         c1, c2 = st.columns(2)
         lat = c1.number_input("Lat", value=20.59)
         lon = c2.number_input("Lon", value=78.96)
         rad = st.number_input("Radius (m)", value=5000)
         new_roi = ee.Geometry.Point([lon, lat]).buffer(rad).bounds()
+        if new_roi:
+            st.session_state['roi'] = new_roi
 
     # --- ROI LOCKING & STATE DETECTION ---
-    if new_roi:
-        st.session_state['roi'] = new_roi.simplify(maxError=50)
-        
-        # If we don't know the state yet (KML or Buffer mode), detect it now via GEE
-        if not current_state_context:
+    # Note: For "Draw on Map", detection happens in the main body after drawing
+    if roi_method != "Draw on Map" and st.session_state['roi']:
+        if not st.session_state['detected_state']:
             with st.spinner("Detecting Location..."):
-                detected = detect_state_from_geometry(new_roi)
+                detected = detect_state_from_geometry(st.session_state['roi'])
                 if detected:
                     st.session_state['detected_state'] = detected
-                    current_state_context = detected
-                    st.success(f"ROI Locked ✅ (Located in: {detected})")
+                    st.success(f"ROI Locked ✅ ({detected})")
                 else:
                     st.success("ROI Locked ✅")
         else:
-            # We already know the state from the dropdown
-            st.session_state['detected_state'] = current_state_context
-            st.success("ROI Locked ✅")
+             st.success(f"ROI Locked ✅ ({st.session_state['detected_state']})")
 
     st.markdown("---")
 
@@ -397,12 +350,12 @@ with st.sidebar:
         st.markdown("### 3. Suitability Criteria")
         rwh_type = st.selectbox("Target Structure", ["Percolation Tank (Recharge)", "Check Dam (Streams)", "Farm Pond (Storage)"])
         
-        # --- SMART AUTO-WEIGHT LOGIC (WORKS FOR KML & DROPDOWN) ---
+        # --- SMART AUTO-WEIGHT LOGIC ---
         # Default Weights (General / Plateau)
         def_rain, def_slope, def_soil, def_lulc, def_drain = 0.25, 0.20, 0.20, 0.15, 0.20
         geo_zone = "General (Plateau)"
 
-        # Use the detected state (from KML or Dropdown)
+        # Use the detected state if available
         state_for_logic = st.session_state.get('detected_state', None)
 
         if state_for_logic:
@@ -492,7 +445,7 @@ with st.sidebar:
             st.session_state['mode'] = app_mode
             st.session_state['params'] = params
         else:
-            st.error("Select ROI first.")
+            st.error("Please draw or select an ROI first.")
 
 # --- 7. MAIN CONTENT ---
 st.markdown(f"""
@@ -512,14 +465,44 @@ def get_safe_map(height=500):
     m = geemap.Map(height=height, basemap="HYBRID")
     return m
 
-if not st.session_state['calculated']:
-    st.info("👈 Please select a module and a location in the sidebar to begin.")
+# --- CASE 1: DRAW MODE ACTIVE, ROI NOT SET ---
+if roi_method == "Draw on Map" and st.session_state['roi'] is None:
+    st.info("🗺️ **Action Required:** Please draw a Polygon on the map below to define your study area.")
+    
+    # Instantiate Map for Drawing
+    m_draw = geemap.Map(height=600, basemap="HYBRID", center=[20.59, 78.96], zoom=5)
+    m_draw.add_draw_control() 
+    
+    # Capture map output
+    map_output = m_draw.to_streamlit(width=None, height=600)
+
+    # Process Drawing
+    if map_output and 'last_active_drawing' in map_output and map_output['last_active_drawing']:
+        drawn_geom = map_output['last_active_drawing']['geometry']
+        ee_geom = geojson_to_ee(drawn_geom)
+        
+        if ee_geom:
+            st.session_state['roi'] = ee_geom
+            
+            # Detect State Immediately
+            with st.spinner("Locking Region & Detecting State..."):
+                detected = detect_state_from_geometry(ee_geom)
+                if detected:
+                    st.session_state['detected_state'] = detected
+                
+            st.success("ROI Captured! Please click 'RUN ANALYSIS' in the sidebar.")
+            st.rerun()
+
+# --- CASE 2: ROI IS SET BUT NOT CALCULATED YET ---
+elif not st.session_state['calculated']:
+    st.info(f"👈 ROI Locked ({st.session_state.get('detected_state', 'Unknown')}). Please click **RUN ANALYSIS** in the sidebar.")
     m = get_safe_map(500)
     if st.session_state['roi']:
         m.centerObject(st.session_state['roi'], 12)
         m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': 'yellow'}, 'ROI')
     m.to_streamlit()
 
+# --- CASE 3: ANALYSIS RESULTS ---
 else:
     roi = st.session_state['roi']
     mode = st.session_state['mode']
