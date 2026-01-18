@@ -7,4 +7,7 @@ matplotlib
 numpy
 pandas
 geopandas
+torch
+torchvision
 Pillow
+
