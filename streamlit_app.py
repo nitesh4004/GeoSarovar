@@ -128,8 +128,6 @@ st.markdown("""
 
 # --- 3. AUTHENTICATION (GEE) ---
 try:
-    # Attempt to use specific project if defined, else default
-    # Replace 'your-project-id' if running locally without Streamlit secrets
     ee.Initialize() 
 except Exception as e:
     try:
@@ -139,7 +137,6 @@ except Exception as e:
         st.error(f"⚠️ GEE Authentication Error: {e2}")
 
 # --- 4. MODEL DEFINITION (CNN) ---
-# This matches the architecture of your training script
 class SARWaterClassifier(nn.Module):
     def __init__(self):
         super(SARWaterClassifier, self).__init__()
@@ -173,7 +170,6 @@ if 'detected_state' not in st.session_state: st.session_state['detected_state'] 
 if 'cnn_model_file' not in st.session_state: st.session_state['cnn_model_file'] = None
 
 # --- 5. APP HELPER FUNCTIONS ---
-
 def parse_kml(content):
     try:
         if isinstance(content, bytes): content = content.decode('utf-8')
@@ -216,7 +212,6 @@ def load_cnn_model(uploaded_file):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = SARWaterClassifier()
     try:
-        # Load from the uploaded bytes
         state_dict = torch.load(uploaded_file, map_location=device)
         model.load_state_dict(state_dict)
         model.to(device)
@@ -231,12 +226,9 @@ def predict_cnn_patches(model, img_array, device):
     h, w, c = img_array.shape
     patch_size = 64
     stride = 64
-    
-    # Init mask
     full_mask = np.zeros((h, w), dtype=np.uint8)
     
-    # Normalize (Min-Max per image, similar to training)
-    img_array = np.nan_to_num(img_array) # Handle NaNs
+    img_array = np.nan_to_num(img_array)
     p2, p98 = np.percentile(img_array, (2, 98))
     img_norm = np.clip(img_array, p2, p98)
     val_min, val_max = img_norm.min(), img_norm.max()
@@ -248,18 +240,15 @@ def predict_cnn_patches(model, img_array, device):
     patches = []
     coords = []
     
-    # Slice
     for y in range(0, h - patch_size + 1, stride):
         for x in range(0, w - patch_size + 1, stride):
-            patch = img_norm[y:y+patch_size, x:x+patch_size, :] # (64,64,2)
-            # Transpose to (2,64,64) for PyTorch
+            patch = img_norm[y:y+patch_size, x:x+patch_size, :] 
             patch_tensor = patch.transpose(2, 0, 1)
             patches.append(patch_tensor)
             coords.append((y, x))
             
     if not patches: return full_mask
 
-    # Inference Batching
     batch_size = 32
     patch_tensor_all = torch.tensor(np.array(patches), dtype=torch.float32).to(device)
     
@@ -271,7 +260,6 @@ def predict_cnn_patches(model, img_array, device):
             preds = (torch.sigmoid(outputs) > 0.5).cpu().numpy().flatten()
             predictions.extend(preds)
             
-    # Stitch
     for (y, x), pred in zip(coords, predictions):
         if pred == 1:
             full_mask[y:y+patch_size, x:x+patch_size] = 1
@@ -281,7 +269,6 @@ def predict_cnn_patches(model, img_array, device):
 # --- STATIC MAP GENERATOR ---
 def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None, is_categorical=False, class_names=None):
     try:
-        # (Same implementation as previous code - kept for completeness)
         if isinstance(roi, ee.Geometry):
             roi_json = roi.getInfo()
             roi_bounds = roi.bounds().getInfo()['coordinates'][0]
@@ -303,7 +290,6 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         if fig_height > 15: fig_height = 15
         if fig_height < 4: fig_height = 4
 
-        # Background
         s2_background = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")\
             .filterBounds(roi).filterDate('2023-01-01', '2023-12-31')\
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))\
@@ -326,7 +312,6 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
         ax.set_title(title, fontsize=14, fontweight='bold')
         ax.axis('off')
 
-        # Legend logic
         if is_categorical and class_names and 'palette' in vis_params:
             patches = [mpatches.Patch(color=c, label=n) for n, c in zip(class_names, vis_params['palette'])]
             ax.legend(handles=patches, loc='lower center', ncol=len(class_names))
@@ -395,25 +380,18 @@ with st.sidebar:
     # --- PARAMETERS ---
     params = {}
     
-    # >>>> NEW CNN MODULE PARAMETERS <<<<
     if app_mode == "[CNN BASED WBE]":
         st.markdown("### 3. Deep Learning Config")
-        
-        # Model Uploader
         model_file = st.file_uploader("Upload Model (.pt)", type=['pt'], help="Upload your 'sar_water_classifier.pt'")
         if model_file:
             st.session_state['cnn_model_file'] = model_file
-        
         st.markdown("**Sentinel-1 Data Date**")
         target_date = st.date_input("Target Date", datetime(2023, 8, 15))
-        
-        # Parameters dict
         params = {
             'target_date': target_date.strftime("%Y-%m-%d"),
             'model_uploaded': st.session_state.get('cnn_model_file') is not None
         }
-        
-        st.warning("⚠️ **Note:** Analysis runs on CPU. Choose a small ROI (e.g., 5km radius) to avoid memory timeouts.")
+        st.warning("⚠️ **Note:** Analysis runs on CPU. Choose a small ROI (e.g., 5km radius).")
 
     elif app_mode == "🌦️ Rainfall & Climate Analysis":
         st.markdown("### 3. Data & Time Parameters")
@@ -427,7 +405,6 @@ with st.sidebar:
     elif app_mode == "💧 Rainwater Harvesting Potential":
         st.markdown("### 3. Suitability Criteria")
         rwh_type = st.selectbox("Target Structure", ["Percolation Tank (Recharge)", "Check Dam (Streams)", "Farm Pond (Storage)"])
-        # Default Weights
         def_rain, def_slope, def_soil, def_lulc, def_drain = 0.25, 0.20, 0.20, 0.15, 0.20
         st.markdown("**Criteria Weights (0-1)**")
         w_rain = st.slider("Rainfall", 0.0, 1.0, def_rain, 0.05)
@@ -547,11 +524,8 @@ else:
             st.error("❌ Please upload the 'sar_water_classifier.pt' model file in the sidebar first!")
         else:
             with st.spinner("Initializing Hybrid Engine (GEE + PyTorch)..."):
-                # 1. Load Model
                 model, device = load_cnn_model(st.session_state['cnn_model_file'])
-                
                 if model:
-                    # 2. Fetch Sentinel-1 Data from GEE
                     st.write("Fetching S1 Radar Data...")
                     s1 = ee.ImageCollection("COPERNICUS/S1_GRD")\
                         .filterBounds(roi)\
@@ -563,66 +537,45 @@ else:
                     
                     if s1.size().getInfo() > 0:
                         img_ee = s1.mean().clip(roi)
-                        
-                        # 3. Download to NumPy (Hybrid Bridge)
-                        # Scale restricted to 20m to prevent memory overflow
                         try:
                             st.write("Downloading image chips to local memory...")
                             arr = geemap.ee_to_numpy(img_ee, region=roi, scale=20)
                             
                             if arr is not None:
-                                # 4. Run Inference
                                 st.write(f"Running CNN Inference on {device}...")
                                 mask = predict_cnn_patches(model, arr, device)
-                                
-                                # 5. Visualize Results using Matplotlib (Since it's a local array now)
                                 st.success("Extraction Complete!")
                                 
-                                # Display in Main Column
                                 with col_map:
                                     fig, ax = plt.subplots(1, 2, figsize=(12, 6))
-                                    
-                                    # Input (VV Channel visualization)
-                                    # Normalize for display
                                     vv = arr[:,:,0]
                                     vv_disp = (vv - np.min(vv)) / (np.max(vv) - np.min(vv))
                                     ax[0].imshow(vv_disp, cmap='gray')
                                     ax[0].set_title("Sentinel-1 Input (VV)", fontweight='bold')
                                     ax[0].axis('off')
                                     
-                                    # Output (CNN Mask)
                                     cmap_cust = mcolors.ListedColormap(['black', 'cyan'])
                                     ax[1].imshow(mask, cmap=cmap_cust)
                                     ax[1].set_title("CNN Water Extraction", fontweight='bold')
                                     ax[1].axis('off')
-                                    
-                                    # Legend
                                     water_patch = mpatches.Patch(color='cyan', label='Water Body')
                                     ax[1].legend(handles=[water_patch], loc='lower right')
-                                    
                                     st.pyplot(fig)
-                                    
-                                    st.info("Note: Result is displayed as a static plot because it was processed locally by the CNN. To view on the interactive map, use standard thresholding methods (Encroachment Module).")
+                                    st.info("Note: Result is displayed as a static plot because it was processed locally by the CNN.")
 
-                                # 6. Stats
                                 with col_res:
                                     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
                                     st.markdown('<div class="card-label">🧠 CNN STATS</div>', unsafe_allow_html=True)
-                                    
-                                    pixel_area = 20 * 20 # 20m scale
+                                    pixel_area = 20 * 20 
                                     water_pixels = np.sum(mask)
                                     area_ha = (water_pixels * pixel_area) / 10000
-                                    
                                     st.metric("Water Area", f"{area_ha:.2f} Ha")
                                     st.caption(f"Based on {p['target_date']}")
                                     st.markdown("</div>", unsafe_allow_html=True)
-                                    
-                                    # Download Mask
                                     mask_img = Image.fromarray((mask * 255).astype(np.uint8))
                                     buf = BytesIO()
                                     mask_img.save(buf, format="PNG")
                                     st.download_button("Download Mask (PNG)", buf.getvalue(), "cnn_water_mask.png", "image/png")
-
                             else:
                                 st.error("Failed to download image data (Region might be too large or empty).")
                         except Exception as e:
@@ -878,19 +831,40 @@ else:
                 result_layer = None
                 layer_name = ""
 
+                # --- 1. Turbidity ---
                 if "Turbidity" in p['param']:
                     final_col = processed_col.map(lambda img: img.normalizedDifference(['B4', 'B3']).rename('value').copyProperties(img, ['system:time_start']))
                     result_layer = final_col.mean().clip(roi)
                     viz_params = {'min': -0.15, 'max': 0.15, 'palette': ['0000ff', '00ffff', 'ffff00', 'ff0000']}
                     layer_name = "Turbidity Index (NDTI)"
 
+                # --- 2. TSS (Total Suspended Solids) ---
                 elif "TSS" in p['param']:
                     final_col = processed_col.map(lambda img: img.expression('2950 * (b4 ** 1.357)', {'b4': img.select('B4')}).rename('value').copyProperties(img, ['system:time_start']))
                     result_layer = final_col.median().clip(roi)
                     viz_params = {'min': 0, 'max': 50, 'palette': ['0000ff', '00ffff', 'ffff00', 'ff0000', '5c0000']}
                     layer_name = "TSS (Est. mg/L)"
-                
-                # ... (Other Indices similar to previous code) ...
+
+                # --- 3. Cyanobacteria ---
+                elif "Cyanobacteria" in p['param']:
+                    final_col = processed_col.map(lambda img: img.expression('b5 / b4', {'b5': img.select('B5'), 'b4': img.select('B4')}).rename('value').copyProperties(img, ['system:time_start']))
+                    result_layer = final_col.max().clip(roi)
+                    viz_params = {'min': 0.8, 'max': 1.5, 'palette': ['0000ff', '00ff00', 'ff0000']}
+                    layer_name = "Cyano Risk (Ratio > 1)"
+
+                # --- 4. Chlorophyll-a ---
+                elif "Chlorophyll" in p['param']:
+                    final_col = processed_col.map(lambda img: img.normalizedDifference(['B5', 'B4']).rename('value').copyProperties(img, ['system:time_start']))
+                    result_layer = final_col.mean().clip(roi)
+                    viz_params = {'min': -0.1, 'max': 0.2, 'palette': ['0000ff', '00ffff', '00ff00', 'ff0000']}
+                    layer_name = "Chlorophyll-a (NDCI)"
+
+                # --- 5. CDOM (Organic Matter) ---
+                elif "CDOM" in p['param']:
+                    final_col = processed_col.map(lambda img: img.expression('b3 / b2', {'b3': img.select('B3'), 'b2': img.select('B2')}).rename('value').copyProperties(img, ['system:time_start']))
+                    result_layer = final_col.median().clip(roi)
+                    viz_params = {'min': 0.5, 'max': 2.0, 'palette': ['0000ff', 'yellow', 'brown']}
+                    layer_name = "CDOM Proxy (Green/Blue)"
                 
                 if result_layer:
                     image_to_export = result_layer
@@ -950,6 +924,6 @@ else:
                     if buf: st.download_button("Download JPG", buf, "GeoSarovar_Map.jpg", "image/jpeg", use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    if mode != "[CNN BASED WBE]": # Don't show map for CNN mode as it uses Matplotlib
+    if mode != "[CNN BASED WBE]": 
         with col_map:
             m.to_streamlit()
