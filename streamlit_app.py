@@ -1,7 +1,7 @@
 import streamlit as st
 import ee
 import json
-import geemap.foliumap as geemap
+import geemap  # FIXED: Changed from 'import geemap.foliumap as geemap' to standard import
 import xml.etree.ElementTree as ET
 import re
 import requests
