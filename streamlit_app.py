@@ -1,7 +1,7 @@
 import streamlit as st
 import ee
 import json
-import geemap  # FIXED: Changed from 'import geemap.foliumap as geemap' to standard import
+import geemap  # Standard import (Safe from 'Box' errors)
 import xml.etree.ElementTree as ET
 import re
 import requests
@@ -465,22 +465,27 @@ st.markdown(f"""
 
 # Helper for Safe Map Loading
 def get_safe_map(height=500):
-    m = geemap.Map(height=height, basemap="HYBRID")
+    # FIXED: Use Esri.WorldImagery which is Folium-friendly
+    # FIXED: Explicitly disable data controls that can conflict in simple mode
+    m = geemap.Map(height=height, basemap="Esri.WorldImagery", draw_control=False, measure_control=False)
+    # Re-add drawing control manually only if needed for interaction
+    if roi_method == "Draw on Map" and not st.session_state['calculated']:
+        m.add_draw_control()
     return m
 
 # --- CASE 1: DRAW MODE ACTIVE, ROI NOT SET ---
 if roi_method == "Draw on Map" and st.session_state['roi'] is None:
     st.info("🗺️ **Instructions:**\n1. Use the **Polygon** or **Rectangle** tool on the map sidebar.\n2. Draw your area of interest.\n3. Click the **'✅ Set as ROI'** button below to lock it.")
     
-    # Instantiate Map for Drawing (Default tools are included)
-    m_draw = geemap.Map(height=550, basemap="HYBRID", center=[20.59, 78.96], zoom=5)
+    # Instantiate Map for Drawing
+    m_draw = get_safe_map(550)
+    m_draw.setCenter(78.96, 20.59, 5)
     
     # Capture map output
     map_output = m_draw.to_streamlit(width=None, height=550)
 
     # Confirm Button Logic
     if st.button("✅ Set as ROI", type="primary"):
-        # RECTIFIED CODE: Added isinstance check to prevent TypeError
         if map_output and isinstance(map_output, dict) and map_output.get('last_active_drawing'):
             drawn_geom = map_output['last_active_drawing']['geometry']
             ee_geom = geojson_to_ee(drawn_geom)
