@@ -1,13 +1,8 @@
 streamlit
 earthengine-api
-geemap
-folium
-requests
+geemap>=0.28.2
 matplotlib
 numpy
 pandas
-geopandas
-torch
-torchvision
 Pillow
-
+requests
