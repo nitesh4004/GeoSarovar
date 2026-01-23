@@ -1,6 +1,7 @@
 streamlit
 earthengine-api
 geemap>=0.28.2
+streamlit-folium
 matplotlib
 numpy
 pandas
