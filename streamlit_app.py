@@ -467,7 +467,7 @@ st.markdown(f"""
 def get_safe_map(height=500):
     # FIXED: Use Esri.WorldImagery which is Folium-friendly
     # FIXED: Explicitly disable data controls that can conflict in simple mode
-    m = geemap.Map(height=height, basemap="OpenStreetMap""Esri.WorldImagery", draw_control=False, measure_control=False)
+    m = geemap.Map(height=height, basemap="OpenStreetMap"lse, measure_control=False)
     # Re-add drawing control manually only if needed for interaction
     if roi_method == "Draw on Map" and not st.session_state['calculated']:
         m.add_draw_control()
@@ -1019,3 +1019,4 @@ else:
 
     with col_map:
         m.to_streamlit(height=700)
+
