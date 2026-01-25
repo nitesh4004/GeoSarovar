@@ -1,3 +1,4 @@
+473
 470
 470
 import streamlit as st
@@ -470,11 +471,11 @@ def get_safe_map(height=500):
     # FIXED: Use Esri.WorldImagery which is Folium-friendly
     # FIXED: Explicitly disable data controls that can conflict in simple mode
         m = geemap.Map(height=height, basemap="OpenStreetMap", draw_control=False, measure_control=False, google_map=False)
-        return m
-    # Re-add drawing control manually only if needed for interaction
-    if roi_method == "Draw on Map" and not st.session_state['calculated']:
-        m.add_draw_control()
-    return m
+    
+    # Re--add drawing control manually only if needed for interaction
+if roi_method == "Draw on Map" and not st.session_state['calculated']:
+            m.add_draw_control()
+return m
 
 # --- CASE 1: DRAW MODE ACTIVE, ROI NOT SET ---
 if roi_method == "Draw on Map" and st.session_state['roi'] is None:
@@ -1027,4 +1028,5 @@ else:
                     except Exception as e:
                                 st.error(f"⚠️ Map rendering failed: {str(e)}")
                                 st.info("Try refreshing the page or clearing browser cache.")
+
 
