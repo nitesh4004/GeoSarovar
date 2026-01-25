@@ -1,5 +1,3 @@
-470
-470
 import streamlit as st
 import ee
 import json
@@ -469,8 +467,7 @@ st.markdown(f"""
 def get_safe_map(height=500):
     # FIXED: Use Esri.WorldImagery which is Folium-friendly
     # FIXED: Explicitly disable data controls that can conflict in simple mode
-        m = geemap.Map(height=height, basemap="OpenStreetMap", draw_control=False, measure_control=False, google_map=False)
-        return m
+    m = geemap.Map(height=height, basemap="OpenStreetMap""Esri.WorldImagery", draw_control=False, measure_control=False)
     # Re-add drawing control manually only if needed for interaction
     if roi_method == "Draw on Map" and not st.session_state['calculated']:
         m.add_draw_control()
@@ -516,8 +513,7 @@ elif not st.session_state['calculated']:
     if st.session_state['roi']:
         m.centerObject(st.session_state['roi'], 12)
         m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': 'yellow'}, 'ROI')
-    m1023
-    (height=500)
+    m.to_streamlit(height=500)
 
 # --- CASE 3: ANALYSIS RESULTS ---
 else:
@@ -1022,8 +1018,4 @@ else:
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col_map:
-            try:
-                        m.to_streamlit(height=700)
-                    except Exception as e:
-                                st.error(f"⚠️ Map rendering failed: {str(e)}")
-                                st.info("Try refreshing the page or clearing browser cache.")
+        m.to_streamlit(height=700)
