@@ -471,22 +471,40 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Helper for Safe Map Loading (UPDATED)
+# Helper for Safe Map Loading (ROBUST VERSION)
 def get_safe_map(height=500):
-    # 1. Initialize Map with minimal args (Safe mode)
-    m = geemap.Map(location=[20.59, 78.96], zoom_start=4)
+    # 1. Initialize Map with NO default google map to avoid conflicts
+    #    and set default location
+    m = geemap.Map(location=[20.59, 78.96], zoom_start=4, add_google_map=False)
     
-    # 2. Apply User Selected Basemap (Explicitly Add Layer)
+    # 2. Add Basemap explicitly using Google XYZ URLs (Most Reliable)
     if map_style == "Satellite (Hybrid)":
-        m.add_basemap("HYBRID")
+        m.add_tile_layer(
+            url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+            name="Hybrid",
+            attribution="Google"
+        )
     elif map_style == "Roadmap":
-        m.add_basemap("ROADMAP")
+        m.add_tile_layer(
+            url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
+            name="Roadmap",
+            attribution="Google"
+        )
     elif map_style == "Terrain":
-        m.add_basemap("TERRAIN")
+        m.add_tile_layer(
+            url="https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}",
+            name="Terrain",
+            attribution="Google"
+        )
     elif map_style == "OpenStreetMap":
         m.add_basemap("OpenStreetMap")
     else:
-        m.add_basemap("HYBRID") # Default fallback
+        # Default fallback
+        m.add_tile_layer(
+            url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+            name="Hybrid",
+            attribution="Google"
+        )
 
     # 3. Add Controls
     m.add_layer_control()
