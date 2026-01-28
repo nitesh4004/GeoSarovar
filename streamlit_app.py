@@ -142,7 +142,7 @@ try:
 except Exception as e:
     st.error(f"⚠️ GEE Authentication Error: {e}")
     st.info("If running locally, run `earthengine authenticate`. If on Cloud, add secrets.")
-    st.stop() # Stop execution if Auth fails
+    st.stop()
 
 # --- STATE MANAGEMENT ---
 if 'calculated' not in st.session_state: st.session_state['calculated'] = False
@@ -468,9 +468,12 @@ st.markdown(f"""
 
 # Helper for Safe Map Loading
 def get_safe_map(height=500):
-    # FIXED: removed measure_control=False (it is not a trait of Map)
-    # FIXED: removed basemap argument from init to prevent init crash
-    m = geemap.Map(height=f"{height}px", basemap="OpenStreetMap") 
+    # FIXED: Initialize with minimal args to avoid TraitError
+    # We purposefully do not pass 'height' or 'basemap' in the init
+    m = geemap.Map(location=[20.59, 78.96], zoom_start=5) 
+    
+    # Set height explicitly using layout, which is the safer ipyleaflet way
+    m.layout.height = f"{height}px"
     
     # Re-add drawing control manually only if needed for interaction
     if roi_method == "Draw on Map" and not st.session_state['calculated']:
@@ -483,7 +486,6 @@ if roi_method == "Draw on Map" and st.session_state['roi'] is None:
     
     # Instantiate Map for Drawing
     m_draw = get_safe_map(550)
-    m_draw.setCenter(78.96, 20.59, 5)
     
     # Capture map output
     map_output = m_draw.to_streamlit(width=None, height=550)
