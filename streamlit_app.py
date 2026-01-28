@@ -286,6 +286,11 @@ with st.sidebar:
     st.markdown("### 2. Location (ROI)")
     # Reordered Menu as requested
     roi_method = st.radio("Selection Mode", ["Upload KML", "Point & Buffer", "Draw on Map"], label_visibility="collapsed")
+    
+    # NEW: Basemap Selector
+    st.markdown("**Map Style**")
+    map_style = st.selectbox("Select Basemap", ["Satellite (Hybrid)", "Roadmap", "Terrain", "OpenStreetMap"], index=0, label_visibility="collapsed")
+
     new_roi = None
     
     # Context variable for smart weights
@@ -466,18 +471,30 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Helper for Safe Map Loading
+# Helper for Safe Map Loading (UPDATED)
 def get_safe_map(height=500):
-    # FIXED: Initialize with minimal args to avoid TraitError
-    # We purposefully do not pass 'height' or 'basemap' in the init
-    m = geemap.Map(location=[20.59, 78.96], zoom_start=5) 
+    # 1. Initialize Map with minimal args (Safe mode)
+    m = geemap.Map(location=[20.59, 78.96], zoom_start=4)
     
-    # Set height explicitly using layout, which is the safer ipyleaflet way
-    m.layout.height = f"{height}px"
+    # 2. Apply User Selected Basemap (Explicitly Add Layer)
+    if map_style == "Satellite (Hybrid)":
+        m.add_basemap("HYBRID")
+    elif map_style == "Roadmap":
+        m.add_basemap("ROADMAP")
+    elif map_style == "Terrain":
+        m.add_basemap("TERRAIN")
+    elif map_style == "OpenStreetMap":
+        m.add_basemap("OpenStreetMap")
+    else:
+        m.add_basemap("HYBRID") # Default fallback
+
+    # 3. Add Controls
+    m.add_layer_control()
     
-    # Re-add drawing control manually only if needed for interaction
+    # 4. Handle Drawing Controls
     if roi_method == "Draw on Map" and not st.session_state['calculated']:
         m.add_draw_control()
+        
     return m
 
 # --- CASE 1: DRAW MODE ACTIVE, ROI NOT SET ---
