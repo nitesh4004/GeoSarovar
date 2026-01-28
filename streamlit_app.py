@@ -1,7 +1,7 @@
 import streamlit as st
 import ee
 import json
-import geemap  # Standard import (Safe from 'Box' errors)
+import geemap  # Standard import
 import xml.etree.ElementTree as ET
 import re
 import requests
@@ -137,9 +137,12 @@ try:
         credentials = ee.ServiceAccountCredentials(service_account, key_data=key_data)
         ee.Initialize(credentials)
     else:
+        # Try standard init for local dev if gcloud CLI is auth'd
         ee.Initialize()
 except Exception as e:
     st.error(f"⚠️ GEE Authentication Error: {e}")
+    st.info("If running locally, run `earthengine authenticate`. If on Cloud, add secrets.")
+    st.stop() # Stop execution if Auth fails
 
 # --- STATE MANAGEMENT ---
 if 'calculated' not in st.session_state: st.session_state['calculated'] = False
@@ -465,9 +468,11 @@ st.markdown(f"""
 
 # Helper for Safe Map Loading
 def get_safe_map(height=500):
-    # FIXED: Use Esri.WorldImagery which is Folium-friendly
-    # FIXED: Explicitly disable data controls that can conflict in simple mode
-    m = geemap.Map(height=height, basemap="OpenStreetMap", measure_control=False)    # Re-add drawing control manually only if needed for interaction
+    # FIXED: removed measure_control=False (it is not a trait of Map)
+    # FIXED: removed basemap argument from init to prevent init crash
+    m = geemap.Map(height=f"{height}px", basemap="OpenStreetMap") 
+    
+    # Re-add drawing control manually only if needed for interaction
     if roi_method == "Draw on Map" and not st.session_state['calculated']:
         m.add_draw_control()
     return m
@@ -628,11 +633,11 @@ else:
                 if "Pond" in p['type']: 
                     # Prefer Clay (1,2,6) for storage
                     soil_suit = soil_tex.remap([1,2,3,4,5,6,7,8,9,10,11,12], 
-                                             [1.0, 0.9, 0.7, 0.6, 0.5, 0.9, 0.5, 0.4, 0.3, 0.4, 0.1, 0.2])
+                                                [1.0, 0.9, 0.7, 0.6, 0.5, 0.9, 0.5, 0.4, 0.3, 0.4, 0.1, 0.2])
                 else: 
                     # Prefer Sand/Loam (9,10,11,12) for recharge
                     soil_suit = soil_tex.remap([1,2,3,4,5,6,7,8,9,10,11,12], 
-                                             [0.1, 0.2, 0.3, 0.4, 0.5, 0.3, 0.6, 0.7, 0.9, 0.9, 1.0, 0.9])
+                                                [0.1, 0.2, 0.3, 0.4, 0.5, 0.3, 0.6, 0.7, 0.9, 0.9, 1.0, 0.9])
                 
                 # LULC (ESA WorldCover)
                 esa = ee.ImageCollection("ESA/WorldCover/v100").first().clip(roi)
@@ -1018,5 +1023,3 @@ else:
 
     with col_map:
         m.to_streamlit(height=700)
-
-
