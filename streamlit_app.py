@@ -1,7 +1,7 @@
 import streamlit as st
 import ee
 import json
-import geemap  # Standard import
+import geemap.foliumap as geemap  # Folium import for Streamlit stability
 import xml.etree.ElementTree as ET
 import re
 import requests
@@ -129,6 +129,8 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 3. AUTHENTICATION (GEE) ---
+# --- 3. AUTHENTICATION (GEE) ---
+# --- 3. AUTHENTICATION (GEE) ---
 try:
     if "gcp_service_account" in st.secrets:
         service_account = st.secrets["gcp_service_account"]["client_email"]
@@ -137,11 +139,41 @@ try:
         credentials = ee.ServiceAccountCredentials(service_account, key_data=key_data)
         ee.Initialize(credentials)
     else:
-        # Try standard init for local dev if gcloud CLI is auth'd
-        ee.Initialize()
+        # Try standard init for local dev
+        # PRIORITIZE the known working project 'ee-niteshgulzar'
+        target_project = 'ee-niteshgulzar'
+        try: 
+            ee.Initialize(project=target_project)
+            st.session_state['active_project'] = target_project
+        except Exception as e:
+            # If specific project fails, check if we should prompt user
+            if "no project found" in str(e) or "project" in str(e).lower() or "permission" in str(e).lower():
+                st.warning(f"⚠️ Could not auto-connect to `{target_project}`.")
+                project_id = st.text_input(
+                    "Enter your Google Cloud Project ID:", 
+                    value=target_project,
+                    help="The ID of the GCP project with Earth Engine API enabled."
+                )
+                if project_id:
+                    try:
+                        ee.Initialize(project=project_id)
+                        st.session_state['active_project'] = project_id
+                        st.success(f"Successfully authenticated with project: {project_id}")
+                    except Exception as e2:
+                        st.error(f"Failed to connect with project ID '{project_id}': {e2}")
+                        st.stop()
+                else:
+                    st.stop()
+            else:
+                # Last resort: Try generic init (might use default gcloud project)
+                try:
+                    ee.Initialize()
+                    st.session_state['active_project'] = 'Default (Local)'
+                except:
+                    raise e
 except Exception as e:
     st.error(f"⚠️ GEE Authentication Error: {e}")
-    st.info("If running locally, run `earthengine authenticate`. If on Cloud, add secrets.")
+    st.info("If running locally, run `earthengine authenticate` in your terminal. If on Cloud, add secrets.")
     st.stop()
 
 # --- STATE MANAGEMENT ---
@@ -272,6 +304,11 @@ def generate_static_map_display(image, roi, vis_params, title, cmap_colors=None,
 # --- 6. SIDEBAR ---
 with st.sidebar:
     st.image("https://raw.githubusercontent.com/nitesh4004/GeoSarovar/main/geosarovar.png", use_container_width=True)
+    
+    # Show Active Project
+    if 'active_project' in st.session_state:
+        st.caption(f"Connected to: `{st.session_state['active_project']}`")
+    
     st.markdown("### 1. Select Module")
     app_mode = st.radio("Choose Functionality:",
                         ["🌦️ Rainfall & Climate Analysis",
@@ -471,43 +508,25 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Helper for Safe Map Loading (ROBUST VERSION)
+# Helper for Safe Map Loading (ROBUST FOLIUM VERSION)
 def get_safe_map(height=500):
-    # 1. Initialize Map with NO default google map to avoid conflicts
-    #    and set default location
-    m = geemap.Map(location=[20.59, 78.96], zoom_start=4, add_google_map=False)
+    # 1. Initialize Map (Folium Backend)
+    m = geemap.Map(location=[20.59, 78.96], zoom_start=4)
     
-    # 2. Add Basemap explicitly using Google XYZ URLs (Most Reliable)
+    # 2. Add Basemap
     if map_style == "Satellite (Hybrid)":
-        m.add_tile_layer(
-            url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
-            name="Hybrid",
-            attribution="Google"
-        )
+        m.add_basemap("HYBRID")
     elif map_style == "Roadmap":
-        m.add_tile_layer(
-            url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
-            name="Roadmap",
-            attribution="Google"
-        )
+        m.add_basemap("ROADMAP")
     elif map_style == "Terrain":
-        m.add_tile_layer(
-            url="https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}",
-            name="Terrain",
-            attribution="Google"
-        )
+        m.add_basemap("TERRAIN")
     elif map_style == "OpenStreetMap":
         m.add_basemap("OpenStreetMap")
     else:
-        # Default fallback
-        m.add_tile_layer(
-            url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
-            name="Hybrid",
-            attribution="Google"
-        )
+        m.add_basemap("HYBRID")
 
     # 3. Add Controls
-    m.add_layer_control()
+    # m.add_layer_control() # Folium adds this by default or handles it differently
     
     # 4. Handle Drawing Controls
     if roi_method == "Draw on Map" and not st.session_state['calculated']:
@@ -552,8 +571,16 @@ elif not st.session_state['calculated']:
     st.info(f"👈 ROI Locked ({st.session_state.get('detected_state', 'Unknown')}). Please click **RUN ANALYSIS** in the sidebar.")
     m = get_safe_map(500)
     if st.session_state['roi']:
-        m.centerObject(st.session_state['roi'], 12)
-        m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': 'yellow'}, 'ROI')
+        try:
+            m.centerObject(st.session_state['roi'], 12)
+            m.addLayer(ee.Image().paint(st.session_state['roi'], 2, 3), {'palette': 'yellow'}, 'ROI')
+        except ee.EEException as e:
+            if "serviceUsage" in str(e) or "permission" in str(e):
+                st.error("⚠️ **Permission Error:** Service Usage API needed.")
+                st.markdown(f"[Enable Service Usage API](https://console.cloud.google.com/apis/library/serviceusage.googleapis.com?project=ee-niteshgulzar)")
+                st.stop()
+            else:
+                st.warning(f"Map Error: {e}")
     m.to_streamlit(height=500)
 
 # --- CASE 3: ANALYSIS RESULTS ---
@@ -564,7 +591,23 @@ else:
 
     col_map, col_res = st.columns([3, 1])
     m = get_safe_map(700)
-    m.centerObject(roi, 13)
+    
+    try:
+        m.centerObject(roi, 13)
+    except ee.EEException as e:
+        if "serviceUsage" in str(e) or "permission" in str(e):
+            st.error("⚠️ **Permission Error: Service Usage API not enabled.**")
+            st.markdown(f"""
+            Your project `{p.get('project_id', 'ee-niteshgulzar')}` needs the **Service Usage API** enabled to run this analysis.
+            
+            👉 **[Click here to Enable Service Usage API](https://console.cloud.google.com/apis/library/serviceusage.googleapis.com?project=ee-niteshgulzar)**
+            
+            After enabling it, wait 1-2 minutes and click 'RUN ANALYSIS' again.
+            """)
+            st.stop()
+        else:
+            st.warning(f"Could not center map on ROI: {e}")
+
     image_to_export = None
     vis_export = {}
 
